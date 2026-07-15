@@ -1,0 +1,24 @@
+{
+  "name": "gigkaar-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GigKaar REST API — matches src/lib/api/mock/server.js's contract for the gigkaar-mobile app.",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "seed": "node src/seed/seed.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.8.3",
+    "morgan": "^1.10.0",
+    "razorpay": "^2.9.5",
+    "socket.io": "^4.8.1",
+    "zod": "^3.23.8"
+  }
+}
