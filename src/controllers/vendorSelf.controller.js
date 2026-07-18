@@ -7,8 +7,17 @@ const { detectReferralKind } = require('../lib/referralCode');
 const { servicesForCategories } = require('../lib/categoryServices');
 const { creditOnboardingForVendorPhone, creditReferralCodeForAgent } = require('./agent.controller');
 
+const serviceSchema = z.object({
+  name: z.string().min(1),
+  pricePaise: z.number().int().positive(),
+});
+
 const registerSchema = z.object({
   categories: z.array(z.string()).min(1),
+  // Vendor-defined services (own name + price). Falls back to a generic
+  // catalog per category if omitted, for backward compatibility with
+  // clients that haven't picked up the dynamic-services wizard step yet.
+  services: z.array(serviceSchema).optional(),
   area: z.string(),
   hours: z.string(),
   photoKey: z.string().optional(),
@@ -36,7 +45,10 @@ async function registerVendor(req, res) {
     name: body.businessName ?? user.name ?? 'Your business',
     primaryCategoryId: body.categories[0],
     categories: body.categories,
-    services: servicesForCategories(body.categories),
+    services:
+      body.services && body.services.length > 0
+        ? body.services
+        : servicesForCategories(body.categories),
     area: body.area,
     photoUrl: body.photoKey ? `https://picsum.photos/seed/${body.photoKey}/400/400` : null,
     bio: 'New on GigKaar.',
@@ -113,20 +125,24 @@ const patchVendorSchema = z.object({
   address: z.string().optional(),
   area: z.string().optional(),
   categories: z.array(z.string()).optional(),
+  // Vendor-defined services for a newly-added category (own name + price).
+  // Falls back to the generic catalog if omitted.
+  services: z.array(serviceSchema).optional(),
 });
 
 async function patchMyVendor(req, res) {
-  const { categories, ...rest } = patchVendorSchema.parse(req.body);
+  const { categories, services, ...rest } = patchVendorSchema.parse(req.body);
   const vendor = await requireOwnVendor(req);
 
-  // A paid "add service" purchase PATCHes the full updated categories list.
-  // Grant the new category's starter services so the purchase actually
-  // takes effect, instead of just recording the category id with nothing
-  // bookable behind it.
+  // A paid "add service" purchase PATCHes the full updated categories list
+  // plus the vendor's own name+price for the new service(s). Falls back to
+  // the generic catalog only if the client didn't send any (older clients).
   if (categories) {
     const existing = new Set(vendor.categories);
     const added = categories.filter((c) => !existing.has(c));
-    if (added.length > 0) {
+    if (services && services.length > 0) {
+      vendor.services.push(...services);
+    } else if (added.length > 0) {
       vendor.services.push(...servicesForCategories(added));
     }
     vendor.categories = categories;

@@ -2,22 +2,39 @@ const { z } = require('zod');
 const { createOrder, verifyPaymentSignature } = require('../lib/razorpay');
 const { fail } = require('../lib/httpError');
 
-// ₹499 + ₹9 GST = ₹508 (50800 paise) for initial vendor registration or the
-// agent membership fee; ₹399 + ₹9 GST = ₹408 (40800 paise) for adding a
-// service to an existing vendor. Mirrors BASE_FEE_PAISE on the mobile app's
-// StepPayment.tsx / AddServiceScreen.tsx — keep these in sync if those change.
-const VENDOR_INITIAL_PAISE = 50800;
+// ₹399 + ₹9 flat GST = ₹408 (40800 paise) for adding a service to an
+// existing vendor, and the agent membership fee is ₹499 + ₹9 flat GST =
+// ₹508 (50800 paise). Mirrors AddServiceScreen.jsx / AgentRegisterMembershipScreen.jsx
+// — keep in sync if those change.
 const VENDOR_ADDITIONAL_PAISE = 40800;
 const AGENT_MEMBERSHIP_PAISE = 50800;
+
+// Initial vendor registration instead scales with the chosen plan and uses
+// 18% GST (not the flat ₹9 the other two fees use) — mirrors PLANS /
+// gstForBasePaise in StepPayment.jsx exactly. A mismatch here makes
+// RazorpayCheckout.open() fail, since its `amount` must match what the
+// order was actually created for.
+const GST_RATE_PERCENT = 18;
+const VENDOR_PLAN_BASE_PAISE = { BASIC: 49900, PRO: 99900 };
+
+function vendorInitialAmountPaise(plan) {
+  const basePaise = VENDOR_PLAN_BASE_PAISE[plan] ?? VENDOR_PLAN_BASE_PAISE.BASIC;
+  const gstPaise = Math.round((basePaise * GST_RATE_PERCENT) / 100);
+  return basePaise + gstPaise;
+}
 
 const vendorOrderSchema = z.object({
   vendorId: z.string(),
   purpose: z.enum(['INITIAL_REGISTRATION', 'ADDITIONAL_SERVICE']).optional(),
+  plan: z.enum(['BASIC', 'PRO']).optional(),
 });
 
 async function createVendorOrder(req, res) {
   const body = vendorOrderSchema.parse(req.body);
-  const amountPaise = body.purpose === 'ADDITIONAL_SERVICE' ? VENDOR_ADDITIONAL_PAISE : VENDOR_INITIAL_PAISE;
+  const amountPaise =
+    body.purpose === 'ADDITIONAL_SERVICE'
+      ? VENDOR_ADDITIONAL_PAISE
+      : vendorInitialAmountPaise(body.plan);
   const order = await createOrder(amountPaise, `vendor_${body.vendorId}_${body.purpose ?? 'INITIAL_REGISTRATION'}`);
   res.status(201).json(order);
 }
