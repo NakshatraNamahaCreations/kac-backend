@@ -5,6 +5,8 @@ const bookingSchema = new Schema(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     customerName: { type: String, required: true },
+    customerPhone: { type: String, default: null },
+    customerAvatarUrl: { type: String, default: null },
     vendorId: { type: Schema.Types.ObjectId, ref: 'Vendor', required: true, index: true },
     vendorName: { type: String, required: true },
     serviceId: { type: String, required: true },

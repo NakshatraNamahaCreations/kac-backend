@@ -22,8 +22,11 @@ const PAST_STATUSES = ['COMPLETED', 'DECLINED', 'CANCELLED'];
 const createBookingSchema = z.object({
   vendorId: z.string(),
   serviceId: z.string(),
-  date: z.string(),
-  slot: z.string(),
+  // Optional — the customer app's "call vendor" flow is ad-hoc (no slot
+  // picker), unlike a scheduled-appointment booking. Defaults to "today,
+  // ASAP" so the (required) DB fields still get a sensible value.
+  date: z.string().optional(),
+  slot: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -37,12 +40,14 @@ async function createBooking(req, res) {
   const booking = await BookingModel.create({
     customerId: req.user._id,
     customerName: req.user.name ?? 'Customer',
+    customerPhone: req.user.phone,
+    customerAvatarUrl: req.user.avatarUrl ?? null,
     vendorId: vendor._id,
     vendorName: vendor.name,
     serviceId: String(service._id),
     serviceName: service.name,
-    date: body.date,
-    slot: body.slot,
+    date: body.date ?? new Date().toISOString().slice(0, 10),
+    slot: body.slot ?? 'ASAP',
     notes: body.notes ?? null,
   });
 
