@@ -52,6 +52,27 @@ const vendorSchema = new Schema(
       enum: ['PENDING_PAYMENT', 'PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED'],
       default: 'PENDING_PAYMENT',
     },
+    // Payout bank account — only the masked account number is ever
+    // persisted (mirrors Agent.bankAccounts), the raw number never is.
+    bank: {
+      accountHolder: { type: String, default: null },
+      accountNumberMasked: { type: String, default: null },
+      ifsc: { type: String, default: null },
+    },
+    // KYC — aadhaarNumber is masked before storage for the same reason bank
+    // account numbers are; PAN/GST are semi-public business tax ids so kept
+    // in full.
+    kyc: {
+      aadhaarNumberMasked: { type: String, default: null },
+      aadhaarName: { type: String, default: null },
+      aadhaarPhotoKey: { type: String, default: null },
+      panNumber: { type: String, default: null },
+      panPhotoKey: { type: String, default: null },
+      gstNumber: { type: String, default: null },
+      gstPhotoKey: { type: String, default: null },
+      ownerName: { type: String, default: null },
+      establishedYear: { type: String, default: null },
+    },
   },
   { timestamps: { createdAt: 'joinedAt', updatedAt: false } },
 );

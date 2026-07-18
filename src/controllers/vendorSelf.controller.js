@@ -12,6 +12,17 @@ const serviceSchema = z.object({
   pricePaise: z.number().int().positive(),
 });
 
+// Only the masked form is ever persisted — mirrors wallet.controller.js's
+// addBankAccount, which does the same for agent payout accounts.
+function maskAccountNumber(accountNumber) {
+  const digits = accountNumber.replace(/\D+/g, '');
+  return `XXXX${digits.slice(-4)}`;
+}
+function maskAadhaar(aadhaarNumber) {
+  const digits = aadhaarNumber.replace(/\D+/g, '');
+  return `XXXX XXXX ${digits.slice(-4)}`;
+}
+
 const registerSchema = z.object({
   categories: z.array(z.string()).min(1),
   // Vendor-defined services (own name + price). Falls back to a generic
@@ -31,6 +42,18 @@ const registerSchema = z.object({
   locationLng: z.number().optional(),
   plan: z.enum(['BASIC', 'PRO']).optional(),
   referralCode: z.string().optional(),
+  // KYC — the wizard collects these on StepDocs but the schema previously
+  // omitted them, so Zod silently stripped them before they ever reached
+  // the database.
+  aadhaarNumber: z.string().optional(),
+  aadhaarName: z.string().optional(),
+  aadhaarPhotoKey: z.string().optional(),
+  panNumber: z.string().optional(),
+  panPhotoKey: z.string().optional(),
+  gstNumber: z.string().optional(),
+  gstPhotoKey: z.string().optional(),
+  ownerName: z.string().optional(),
+  establishedYear: z.string().optional(),
 });
 
 async function registerVendor(req, res) {
@@ -66,6 +89,22 @@ async function registerVendor(req, res) {
     serviceQuota: body.plan === 'PRO' ? null : 10,
     servicesUsed: 0,
     verificationStatus: 'PENDING_PAYMENT',
+    bank: {
+      accountHolder: body.bank.accountHolder,
+      accountNumberMasked: maskAccountNumber(body.bank.accountNumber),
+      ifsc: body.bank.ifsc.toUpperCase(),
+    },
+    kyc: {
+      aadhaarNumberMasked: body.aadhaarNumber ? maskAadhaar(body.aadhaarNumber) : null,
+      aadhaarName: body.aadhaarName ?? null,
+      aadhaarPhotoKey: body.aadhaarPhotoKey ?? null,
+      panNumber: body.panNumber ?? null,
+      panPhotoKey: body.panPhotoKey ?? null,
+      gstNumber: body.gstNumber ?? null,
+      gstPhotoKey: body.gstPhotoKey ?? null,
+      ownerName: body.ownerName ?? null,
+      establishedYear: body.establishedYear ?? null,
+    },
   });
 
   if (!user.roles.includes('vendor')) {
@@ -128,11 +167,69 @@ const patchVendorSchema = z.object({
   // Vendor-defined services for a newly-added category (own name + price).
   // Falls back to the generic catalog if omitted.
   services: z.array(serviceSchema).optional(),
+  // Bank account edits (BankAccountScreen/AddBankAccountScreen) — raw
+  // accountNumber in, masked form persisted, same as registration.
+  bank: z.object({ accountNumber: z.string(), ifsc: z.string(), accountHolder: z.string() }).optional(),
+  // KYC edits (DocumentsScreen).
+  aadhaarNumber: z.string().optional(),
+  aadhaarName: z.string().optional(),
+  aadhaarPhotoKey: z.string().optional(),
+  panNumber: z.string().optional(),
+  panPhotoKey: z.string().optional(),
+  gstNumber: z.string().optional(),
+  gstPhotoKey: z.string().optional(),
+  ownerName: z.string().optional(),
+  establishedYear: z.string().optional(),
+  // Profile photo reupload (DocumentsScreen) — was previously accepted only
+  // at registration time via photoKey; there was no way to change it after.
+  photoKey: z.string().optional(),
 });
 
 async function patchMyVendor(req, res) {
-  const { categories, services, ...rest } = patchVendorSchema.parse(req.body);
+  const {
+    categories,
+    services,
+    bank,
+    aadhaarNumber,
+    aadhaarName,
+    aadhaarPhotoKey,
+    panNumber,
+    panPhotoKey,
+    gstNumber,
+    gstPhotoKey,
+    ownerName,
+    establishedYear,
+    photoKey,
+    ...rest
+  } = patchVendorSchema.parse(req.body);
   const vendor = await requireOwnVendor(req);
+
+  if (photoKey) {
+    vendor.photoUrl = `https://picsum.photos/seed/${photoKey}/400/400`;
+  }
+
+  if (bank) {
+    vendor.bank = {
+      accountHolder: bank.accountHolder,
+      accountNumberMasked: maskAccountNumber(bank.accountNumber),
+      ifsc: bank.ifsc.toUpperCase(),
+    };
+  }
+
+  const kycPatch = {
+    ...(aadhaarNumber !== undefined ? { aadhaarNumberMasked: maskAadhaar(aadhaarNumber) } : {}),
+    ...(aadhaarName !== undefined ? { aadhaarName } : {}),
+    ...(aadhaarPhotoKey !== undefined ? { aadhaarPhotoKey } : {}),
+    ...(panNumber !== undefined ? { panNumber } : {}),
+    ...(panPhotoKey !== undefined ? { panPhotoKey } : {}),
+    ...(gstNumber !== undefined ? { gstNumber } : {}),
+    ...(gstPhotoKey !== undefined ? { gstPhotoKey } : {}),
+    ...(ownerName !== undefined ? { ownerName } : {}),
+    ...(establishedYear !== undefined ? { establishedYear } : {}),
+  };
+  if (Object.keys(kycPatch).length > 0) {
+    vendor.kyc = { ...(vendor.kyc?.toObject?.() ?? vendor.kyc ?? {}), ...kycPatch };
+  }
 
   // A paid "add service" purchase PATCHes the full updated categories list
   // plus the vendor's own name+price for the new service(s). Falls back to
