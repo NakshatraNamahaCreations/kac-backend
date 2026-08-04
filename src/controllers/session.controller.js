@@ -140,13 +140,21 @@ async function patchMe(req, res) {
 }
 
 const addRoleSchema = z.object({ role: z.enum(['customer', 'vendor', 'agent', 'employee']) });
+// One-time signup bonus credited the first time a user becomes a customer —
+// distinct from CUSTOMER_REFERRAL_REWARD_COINS above (that one's tied to
+// entering someone else's referral code, this one just rewards registering).
+const CUSTOMER_SIGNUP_BONUS_COINS = 999;
 
 async function addRole(req, res) {
   const { role } = addRoleSchema.parse(req.body);
   const user = req.user;
-  if (!user.roles.includes(role)) {
+  const isNewRole = !user.roles.includes(role);
+  if (isNewRole) {
     user.roles.push(role);
     await user.save();
+  }
+  if (isNewRole && role === 'customer') {
+    await creditCustomerWelcomeBonus(user, CUSTOMER_SIGNUP_BONUS_COINS, 'Welcome bonus — new customer');
   }
   res.json(user.toJSON());
 }
