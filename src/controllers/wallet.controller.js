@@ -5,9 +5,11 @@ const { fail } = require('../lib/httpError');
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { agentReferralCode } = require('../lib/referralCode');
 
-// Wallet is agent-scoped in the current contract (see endpoints.wallet.* —
-// only /wallet, tied to the agent dashboard/wallet screens). Auto-provision
-// an empty agent wallet on first touch so a signed-in agent never 404s here.
+// Wallet balance lives on the Agent document regardless of role — agents AND
+// vendors both hit these endpoints (requireRole('agent', 'vendor')) since a
+// vendor has no separate wallet balance field of their own. Auto-provision
+// an empty agent wallet on first touch so a signed-in agent/vendor never
+// 404s here.
 async function requireOwnAgent(userId) {
   let agent = await AgentModel.findOne({ userId });
   if (!agent) {
@@ -85,9 +87,34 @@ async function withdraw(req, res) {
   res.status(201).json({ withdrawalId: entry.withdrawalId, status: 'REQUESTED' });
 }
 
+const rechargeSchema = z.object({ coins: z.number().int().positive() });
+
+// TODO: credits coins immediately with no real payment collected — mirrors
+// the customer wallet's mock recharge (customerWallet.controller.js) for
+// now. Wire Razorpay here (mirroring payments.controller.js's vendor/agent
+// orders) before this ships to real users; per the app's own rule, payment
+// success must be confirmed by the backend, not just this instant credit.
+async function recharge(req, res) {
+  const { coins } = rechargeSchema.parse(req.body);
+  const agent = await requireOwnAgent(req.user._id);
+  agent.walletCoins += coins;
+  await agent.save();
+
+  await LedgerEntryModel.create({
+    ownerId: req.user._id,
+    kind: 'credit',
+    coins,
+    balance: agent.walletCoins,
+    description: 'Wallet recharge',
+  });
+
+  res.status(201).json({ wallet: { coins: agent.walletCoins, bankAccounts: agent.bankAccounts.map((b) => b.toJSON()) } });
+}
+
 module.exports = {
   getWallet,
   getWalletLedger,
   addBankAccount,
   withdraw,
+  recharge,
 };
