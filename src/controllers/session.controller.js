@@ -136,28 +136,31 @@ async function addRole(req, res) {
     await user.save();
 
     // POST /me/roles is the real "became a customer" moment (see
-    // CustomerRegisterAddressScreen.jsx) — this is the one place a
-    // referral code entered at signup actually gets attributed.
-    if (role === 'customer' && referralCode) {
-      const kind = detectReferralKind(referralCode);
-      if (kind === 'employee') {
-        const employee = await EmployeeModel.findOne({ referralCode: referralCode.trim().toUpperCase() });
-        if (employee) {
-          await EmployeeReferralModel.create({
-            employeeId: employee._id,
-            userId: user._id,
-            userName: user.name ?? 'Customer',
-            userPhone: user.phone,
-            role: 'customer',
-            area: user.area ?? null,
-          });
+    // CustomerRegisterAddressScreen.jsx). Every first-time customer gets the
+    // welcome bonus immediately, referral code or not — the code (if any)
+    // separately earns the REFERRER their own 249-coin reward below.
+    if (role === 'customer') {
+      await creditCustomerWelcomeBonus(user, CUSTOMER_REFERRAL_REWARD_COINS, 'Welcome bonus');
+
+      if (referralCode) {
+        const kind = detectReferralKind(referralCode);
+        if (kind === 'employee') {
+          const employee = await EmployeeModel.findOne({ referralCode: referralCode.trim().toUpperCase() });
+          if (employee) {
+            await EmployeeReferralModel.create({
+              employeeId: employee._id,
+              userId: user._id,
+              userName: user.name ?? 'Customer',
+              userPhone: user.phone,
+              role: 'customer',
+              area: user.area ?? null,
+            });
+          }
+        } else if (kind === 'customer' && referralCode.trim().toUpperCase() !== user.referralCode) {
+          await creditCustomerReferrer(referralCode, user);
+        } else if (kind === 'vendor') {
+          await creditVendorReferrer(referralCode, user._id, user.name ?? 'Customer', user.phone, 'customer');
         }
-      } else if (kind === 'customer' && referralCode.trim().toUpperCase() !== user.referralCode) {
-        await creditCustomerWelcomeBonus(user, CUSTOMER_REFERRAL_REWARD_COINS, 'Welcome bonus — referred');
-        await creditCustomerReferrer(referralCode, user);
-      } else if (kind === 'vendor') {
-        await creditCustomerWelcomeBonus(user, CUSTOMER_REFERRAL_REWARD_COINS, 'Welcome bonus — referred');
-        await creditVendorReferrer(referralCode, user._id, user.name ?? 'Customer', user.phone, 'customer');
       }
     }
   }
