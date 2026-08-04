@@ -8,6 +8,7 @@ const {
   patchMyVendor,
   registerVendor,
 } = require('../controllers/vendorSelf.controller');
+const { listMyVendorReferrals } = require('../controllers/vendorReferral.controller');
 
 const vendorSelfRouter = Router();
 vendorSelfRouter.use(requireAuth);
@@ -17,5 +18,6 @@ vendorSelfRouter.get('/vendor/me', asyncHandler(getMyVendor));
 vendorSelfRouter.patch('/vendor/me', asyncHandler(patchMyVendor));
 vendorSelfRouter.patch('/vendor/me/availability', asyncHandler(patchMyAvailability));
 vendorSelfRouter.get('/vendor/analytics', asyncHandler(getMyAnalytics));
+vendorSelfRouter.get('/vendor/me/referrals', asyncHandler(listMyVendorReferrals));
 
 module.exports = { vendorSelfRouter };

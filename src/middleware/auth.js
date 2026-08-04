@@ -19,14 +19,17 @@ async function requireAuth(req, _res, next) {
   }
 }
 
-// Rejects with 403 if the authenticated user hasn't added this role yet
-// (via the relevant */register endpoint or POST /me/roles). Use on routes
-// that assume a role-specific profile document already exists, instead of
-// letting the controller silently auto-provision an empty one for anyone.
-function requireRole(role) {
+// Rejects with 403 if the authenticated user hasn't added any of the given
+// roles yet (via the relevant */register endpoint or POST /me/roles). Use on
+// routes that assume a role-specific profile document already exists,
+// instead of letting the controller silently auto-provision an empty one
+// for anyone. Accepts multiple roles for endpoints genuinely shared across
+// roles (e.g. /wallet is used by both agent and vendor screens, backed by
+// the same Agent-document wallet container).
+function requireRole(...roles) {
   return function (req, _res, next) {
-    if (!req.user.roles.includes(role)) {
-      return next(new HttpError(403, 'ROLE_REQUIRED', `You need the ${role} role for this.`));
+    if (!roles.some((r) => req.user.roles.includes(r))) {
+      return next(new HttpError(403, 'ROLE_REQUIRED', `You need the ${roles.join(' or ')} role for this.`));
     }
     next();
   };

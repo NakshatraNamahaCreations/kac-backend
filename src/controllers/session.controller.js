@@ -7,8 +7,10 @@ const { RefreshTokenModel } = require('../models/RefreshToken');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
 const { newJti, signAccessToken, signRefreshToken, verifyRefreshToken } = require('../lib/jwt');
 const { fail } = require('../lib/httpError');
-const { detectReferralKind } = require('../lib/referralCode');
+const { detectReferralKind, customerReferralCode } = require('../lib/referralCode');
 const { creditCustomerWelcomeBonus } = require('./customerWallet.controller');
+const { creditCustomerReferrer } = require('./customerReferral.controller');
+const { creditVendorReferrer } = require('./vendorReferral.controller');
 const { env } = require('../config/env');
 
 const CUSTOMER_REFERRAL_REWARD_COINS = 99;
@@ -103,58 +105,61 @@ const patchMeSchema = z.object({
   language: z.string().optional(),
   area: z.string().optional(),
   address: z.string().optional(),
-  referralCode: z.string().optional(),
 });
 
 async function patchMe(req, res) {
-  const { referralCode, ...patch } = patchMeSchema.parse(req.body);
+  const patch = patchMeSchema.parse(req.body);
   const user = req.user;
-  const wasFirstSetup = !user.name && !!patch.name;
 
   Object.assign(user, patch);
   await user.save();
 
-  // Apply referral attribution on first-time profile setup only — repeat
-  // PATCHes (edit-profile flows) don't re-attribute.
-  if (wasFirstSetup && referralCode) {
-    const kind = detectReferralKind(referralCode);
-    if (kind === 'employee') {
-      const employee = await EmployeeModel.findOne({ referralCode: referralCode.trim().toUpperCase() });
-      if (employee) {
-        await EmployeeReferralModel.create({
-          employeeId: employee._id,
-          userId: user._id,
-          userName: user.name ?? 'Customer',
-          userPhone: user.phone,
-          role: 'customer',
-          area: user.area ?? null,
-        });
-      }
-    } else if (kind === 'customer') {
-      // Customer code → 99 welcome coins credited to the NEW customer.
-      await creditCustomerWelcomeBonus(user, CUSTOMER_REFERRAL_REWARD_COINS, 'Welcome bonus — referred');
-    }
-  }
-
   res.json(user.toJSON());
 }
 
-const addRoleSchema = z.object({ role: z.enum(['customer', 'vendor', 'agent', 'employee']) });
-// One-time signup bonus credited the first time a user becomes a customer —
-// distinct from CUSTOMER_REFERRAL_REWARD_COINS above (that one's tied to
-// entering someone else's referral code, this one just rewards registering).
-const CUSTOMER_SIGNUP_BONUS_COINS = 999;
+const addRoleSchema = z.object({
+  role: z.enum(['customer', 'vendor', 'agent', 'employee']),
+  referralCode: z.string().optional(),
+});
 
 async function addRole(req, res) {
-  const { role } = addRoleSchema.parse(req.body);
+  const { role, referralCode } = addRoleSchema.parse(req.body);
   const user = req.user;
   const isNewRole = !user.roles.includes(role);
   if (isNewRole) {
     user.roles.push(role);
+    // Stored so other users' referral-code entries can look this customer
+    // up directly (see the field's comment on the User model).
+    if (role === 'customer' && !user.referralCode) {
+      user.referralCode = customerReferralCode(String(user._id));
+    }
     await user.save();
-  }
-  if (isNewRole && role === 'customer') {
-    await creditCustomerWelcomeBonus(user, CUSTOMER_SIGNUP_BONUS_COINS, 'Welcome bonus — new customer');
+
+    // POST /me/roles is the real "became a customer" moment (see
+    // CustomerRegisterAddressScreen.jsx) — this is the one place a
+    // referral code entered at signup actually gets attributed.
+    if (role === 'customer' && referralCode) {
+      const kind = detectReferralKind(referralCode);
+      if (kind === 'employee') {
+        const employee = await EmployeeModel.findOne({ referralCode: referralCode.trim().toUpperCase() });
+        if (employee) {
+          await EmployeeReferralModel.create({
+            employeeId: employee._id,
+            userId: user._id,
+            userName: user.name ?? 'Customer',
+            userPhone: user.phone,
+            role: 'customer',
+            area: user.area ?? null,
+          });
+        }
+      } else if (kind === 'customer' && referralCode.trim().toUpperCase() !== user.referralCode) {
+        await creditCustomerWelcomeBonus(user, CUSTOMER_REFERRAL_REWARD_COINS, 'Welcome bonus — referred');
+        await creditCustomerReferrer(referralCode, user);
+      } else if (kind === 'vendor') {
+        await creditCustomerWelcomeBonus(user, CUSTOMER_REFERRAL_REWARD_COINS, 'Welcome bonus — referred');
+        await creditVendorReferrer(referralCode, user._id, user.name ?? 'Customer', user.phone, 'customer');
+      }
+    }
   }
   res.json(user.toJSON());
 }

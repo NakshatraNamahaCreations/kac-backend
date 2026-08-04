@@ -10,6 +10,7 @@ const {
   setPushToken,
   verifyOtp,
 } = require('../controllers/session.controller');
+const { listMyCustomerReferrals } = require('../controllers/customerReferral.controller');
 
 const sessionRouter = Router();
 
@@ -21,5 +22,6 @@ sessionRouter.get('/me', requireAuth, asyncHandler(getMe));
 sessionRouter.patch('/me', requireAuth, asyncHandler(patchMe));
 sessionRouter.post('/me/roles', requireAuth, asyncHandler(addRole));
 sessionRouter.post('/me/push-token', requireAuth, asyncHandler(setPushToken));
+sessionRouter.get('/me/referrals', requireAuth, asyncHandler(listMyCustomerReferrals));
 
 module.exports = { sessionRouter };

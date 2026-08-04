@@ -44,6 +44,9 @@ const vendorSchema = new Schema(
       appInstalls: { type: Number, default: 0 },
       activations: { type: Number, default: 0 },
     },
+    // Set at registration — stored (not just derived from vendorReferralCode())
+    // so a referral-code entered by someone else can actually be looked up.
+    referralCode: { type: String, default: null, index: true },
     plan: { type: String, enum: ['BASIC', 'PRO'], default: 'BASIC' },
     serviceQuota: { type: Number, default: 10 },
     servicesUsed: { type: Number, default: 0 },

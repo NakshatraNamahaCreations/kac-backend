@@ -7,6 +7,12 @@ const { agentReferralCode, detectReferralKind } = require('../lib/referralCode')
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { io } = require('../realtime/socket');
 
+// Lazy require — vendorReferral.controller.js requires agent.controller.js
+// for creditAgentCoins, so a top-level require here would form a cycle.
+function creditVendorReferrer(...args) {
+  return require('./vendorReferral.controller').creditVendorReferrer(...args);
+}
+
 const bankSchema = z.object({ accountNumber: z.string(), ifsc: z.string(), accountHolder: z.string() });
 
 const registerSchema = z.object({
@@ -66,6 +72,10 @@ async function registerAgent(req, res) {
       if (body.referralCode.trim().toUpperCase() !== agent.executiveCode) {
         await creditReferralCodeForAgent(body.referralCode, body.name, user.phone);
       }
+    } else if (kind === 'vendor') {
+      // A vendor referred this new agent — credits the referring vendor's
+      // (agent-backed) wallet instead.
+      await creditVendorReferrer(body.referralCode, user._id, body.name, user.phone, 'agent');
     }
   }
 
@@ -218,4 +228,5 @@ module.exports = {
   listOnboardings,
   creditOnboardingForVendorPhone,
   creditReferralCodeForAgent,
+  creditAgentCoins,
 };

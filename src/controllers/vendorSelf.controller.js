@@ -3,9 +3,10 @@ const { VendorModel } = require('../models/Vendor');
 const { BookingModel } = require('../models/Booking');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
 const { fail } = require('../lib/httpError');
-const { detectReferralKind } = require('../lib/referralCode');
+const { detectReferralKind, vendorReferralCode } = require('../lib/referralCode');
 const { servicesForCategories } = require('../lib/categoryServices');
 const { creditOnboardingForVendorPhone, creditReferralCodeForAgent } = require('./agent.controller');
+const { creditVendorReferrer } = require('./vendorReferral.controller');
 
 const serviceSchema = z.object({
   name: z.string().min(1),
@@ -107,6 +108,12 @@ async function registerVendor(req, res) {
     },
   });
 
+  // Set after create — the code is derived from the vendor document's own
+  // _id (matches vendorReferralCode(profileQ.data.id) used by the client's
+  // share screens), so it can only be computed once the doc exists.
+  vendor.referralCode = vendorReferralCode(String(vendor._id));
+  await vendor.save();
+
   if (!user.roles.includes('vendor')) {
     user.roles.push('vendor');
     await user.save();
@@ -126,6 +133,8 @@ async function registerVendor(req, res) {
           area: vendor.area,
         });
       }
+    } else if (kind === 'vendor' && body.referralCode.trim().toUpperCase() !== vendor.referralCode) {
+      await creditVendorReferrer(body.referralCode, user._id, vendor.name, user.phone, 'vendor');
     }
   }
 
