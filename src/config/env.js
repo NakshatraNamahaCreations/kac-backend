@@ -32,6 +32,19 @@ const env = {
   razorpayKeyId: process.env.RAZORPAY_KEY_ID ?? '',
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET ?? '',
   devOtpCode: process.env.DEV_OTP_CODE ?? '123456',
+  // Admin panel — a single fixed operator login, deliberately separate from
+  // the phone+OTP User/roles system (there's no "admin" role on User; this
+  // is its own credential pair + its own JWT secret so an admin token can
+  // never be confused with / forged from a regular user access token).
+  // Dev fallback logs in with admin / admin123 — change ADMIN_PASSWORD_HASH
+  // before deploying (see server/README or .env.example for how to hash one).
+  adminUsername: process.env.ADMIN_USERNAME ?? 'admin',
+  adminPasswordHash:
+    process.env.ADMIN_PASSWORD_HASH ??
+    (isProduction
+      ? required('ADMIN_PASSWORD_HASH')
+      : '$2a$10$JjhW4idckdPRZPwKQLPToOcc5HgZTa/VUcWDc86GvI5drv5PqQ9ZW'),
+  adminJwtSecret: requiredSecret('ADMIN_JWT_SECRET'),
 };
 
 module.exports = { env };

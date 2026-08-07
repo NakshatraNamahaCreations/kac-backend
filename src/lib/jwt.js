@@ -24,4 +24,26 @@ function newJti() {
   return crypto.randomUUID();
 }
 
-module.exports = { signAccessToken, signRefreshToken, verifyAccessToken, verifyRefreshToken, newJti };
+// Admin tokens use their own secret (env.adminJwtSecret) — deliberately not
+// jwtAccessSecret, so a leaked/forged regular-user token can never pass as
+// an admin token and vice versa. There's only one admin identity (the fixed
+// operator login), so the payload just marks the token's kind — no subject.
+function signAdminToken() {
+  return jwt.sign({ kind: 'admin' }, env.adminJwtSecret, { expiresIn: '12h' });
+}
+
+function verifyAdminToken(token) {
+  const payload = jwt.verify(token, env.adminJwtSecret);
+  if (payload.kind !== 'admin') throw new Error('Not an admin token');
+  return payload;
+}
+
+module.exports = {
+  signAccessToken,
+  signRefreshToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+  newJti,
+  signAdminToken,
+  verifyAdminToken,
+};

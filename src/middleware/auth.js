@@ -1,4 +1,4 @@
-const { verifyAccessToken } = require('../lib/jwt');
+const { verifyAccessToken, verifyAdminToken } = require('../lib/jwt');
 const { HttpError } = require('../lib/httpError');
 const { UserModel } = require('../models/User');
 
@@ -35,4 +35,22 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { requireAuth, requireRole };
+// Gates the admin-panel API — a completely separate identity from
+// requireAuth/req.user (there's no "admin" role on User; see lib/jwt.js's
+// signAdminToken). Sets req.isAdmin instead of req.user since there's no
+// underlying document to attach.
+function requireAdminAuth(req, _res, next) {
+  try {
+    const header = req.headers.authorization;
+    const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
+    if (!token) throw new HttpError(401, 'UNAUTHENTICATED', 'Missing admin token.');
+    verifyAdminToken(token);
+    req.isAdmin = true;
+    next();
+  } catch (err) {
+    if (err instanceof HttpError) return next(err);
+    next(new HttpError(401, 'UNAUTHENTICATED', 'Admin token is invalid or expired.'));
+  }
+}
+
+module.exports = { requireAuth, requireRole, requireAdminAuth };
