@@ -5,6 +5,7 @@ const { VendorModel } = require('../models/Vendor');
 const { AgentModel } = require('../models/Agent');
 const { EmployeeModel } = require('../models/Employee');
 const { BookingModel } = require('../models/Booking');
+const { AdminModel } = require('../models/Admin');
 const { env } = require('../config/env');
 const { signAdminToken } = require('../lib/jwt');
 const { fail } = require('../lib/httpError');
@@ -17,14 +18,67 @@ function escapeRegex(s) {
 
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
 
+// DB-backed admin (Admin.js) is checked first — this is what POST
+// /admin/setup creates. Falls back to the env-var admin (config/env.js) if
+// no DB row matches, so the env-based login (Render's ADMIN_USERNAME/
+// ADMIN_PASSWORD_HASH) keeps working as a break-glass fallback even after
+// you've switched to DB-stored credentials.
 async function adminLogin(req, res) {
   const body = loginSchema.parse(req.body);
+
+  const dbAdmin = await AdminModel.findOne({ username: body.username });
+  if (dbAdmin) {
+    if (!bcrypt.compareSync(body.password, dbAdmin.passwordHash)) {
+      fail(401, 'INVALID_CREDENTIALS', 'Invalid username or password.');
+    }
+    res.json({ accessToken: signAdminToken() });
+    return;
+  }
+
   const validUsername = body.username === env.adminUsername;
   const validPassword = validUsername && bcrypt.compareSync(body.password, env.adminPasswordHash);
   if (!validUsername || !validPassword) {
     fail(401, 'INVALID_CREDENTIALS', 'Invalid username or password.');
   }
   res.json({ accessToken: signAdminToken() });
+}
+
+// One-time bootstrap — creates the first DB-stored admin. Deliberately
+// unauthenticated (there's no admin token to require before one exists),
+// so the ONLY safety control is refusing to run again once any row exists.
+// Without this guard it would be a permanent open door to create admin
+// accounts, which is why it hard-fails rather than e.g. upserting.
+async function adminSetup(req, res) {
+  const body = loginSchema.parse(req.body);
+  const existing = await AdminModel.countDocuments();
+  if (existing > 0) {
+    fail(409, 'ALREADY_SET_UP', 'An admin account already exists. Use /admin/change-password instead.');
+  }
+  await AdminModel.create({
+    username: body.username,
+    passwordHash: bcrypt.hashSync(body.password, 10),
+  });
+  res.status(201).json({ username: body.username });
+}
+
+const changePasswordSchema = z.object({
+  username: z.string().min(1),
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6),
+});
+
+// Requires the CURRENT password (not just a valid admin session) so a
+// leaked/long-lived admin token alone can't be used to lock out the real
+// admin by silently rotating the password out from under them.
+async function adminChangePassword(req, res) {
+  const body = changePasswordSchema.parse(req.body);
+  const admin = await AdminModel.findOne({ username: body.username });
+  if (!admin || !bcrypt.compareSync(body.currentPassword, admin.passwordHash)) {
+    fail(401, 'INVALID_CREDENTIALS', 'Current username or password is incorrect.');
+  }
+  admin.passwordHash = bcrypt.hashSync(body.newPassword, 10);
+  await admin.save();
+  res.status(204).send();
 }
 
 async function getStats(_req, res) {
@@ -154,6 +208,39 @@ async function listUsers(req, res) {
   res.json(buildPage(data, skip, limit, total));
 }
 
+// Full record for one user, keyed by the SAME (role, id) pair a listUsers
+// row carries — id is that role's own document id (Vendor/Agent/Employee
+// id, or User id for customer/all), not always a User id. Kept as a
+// separate on-demand call rather than bloating every listUsers row with
+// full bank/KYC/services payloads that most views never render.
+async function getUserDetail(req, res) {
+  const { role, id } = req.params;
+
+  if (role === 'vendor') {
+    const vendor = await VendorModel.findById(id);
+    if (!vendor) fail(404, 'NOT_FOUND', 'Vendor not found.');
+    return res.json({ role: 'vendor', ...vendor.toJSON() });
+  }
+
+  if (role === 'agent') {
+    const agent = await AgentModel.findById(id).populate('userId', 'name phone area address');
+    if (!agent) fail(404, 'NOT_FOUND', 'Agent not found.');
+    const { userId, ...rest } = agent.toJSON();
+    return res.json({ role: 'agent', ...rest, name: userId?.name, phone: userId?.phone, address: userId?.address });
+  }
+
+  if (role === 'employee') {
+    const employee = await EmployeeModel.findById(id).populate('userId', 'name phone address');
+    if (!employee) fail(404, 'NOT_FOUND', 'Employee not found.');
+    const { userId, ...rest } = employee.toJSON();
+    return res.json({ role: 'employee', ...rest, name: userId?.name, phone: userId?.phone, address: userId?.address });
+  }
+
+  const user = await UserModel.findById(id).select('-pushTokens');
+  if (!user) fail(404, 'NOT_FOUND', 'User not found.');
+  res.json({ role: 'customer', ...user.toJSON() });
+}
+
 // Sequential-looking ids (EMP-1001, EMP-1002, ...) — admin-direct-create has
 // no HR-issued seed row to borrow one from (see employee.controller.js's
 // self-service registerEmployee, which reads employeeId off a pre-seeded
@@ -177,6 +264,7 @@ const createUserSchema = z.object({
   role: z.enum(['customer', 'vendor', 'agent', 'employee']),
   area: z.string().optional(),
   categoryId: z.string().optional(),
+  dailyTarget: z.number().int().nonnegative().optional(),
 });
 
 // Admin-direct-create: unlike the mobile app's own registration flows (which
@@ -250,6 +338,7 @@ async function createUser(req, res) {
         employeeId,
         referralCode: `GK-EMP-${employeeId.replace(/^EMP-/, '')}`,
         areaAssigned: body.area,
+        dailyTarget: body.dailyTarget ?? 0,
       });
     }
     result.referralCode = employee.referralCode;
@@ -285,8 +374,11 @@ async function listBookings(req, res) {
 
 module.exports = {
   adminLogin,
+  adminSetup,
+  adminChangePassword,
   getStats,
   listUsers,
+  getUserDetail,
   createUser,
   listBookings,
 };
