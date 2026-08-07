@@ -6,10 +6,24 @@ const { resolveDateRange } = require('../lib/dateRange');
 
 const verifyCodeSchema = z.object({ code: z.string() });
 
+// Source of truth is the Employee collection itself, not seed.used —
+// earlier registrations (before this flag started being set on success)
+// never got it retroactively flipped, so trusting the flag alone would
+// still let a second person crash into the ones that predate this fix.
+// Checking by employeeId directly is self-healing regardless of that
+// flag's history.
+async function seedClaimant(seed) {
+  return EmployeeModel.findOne({ employeeId: seed.employeeId }).select('userId');
+}
+
 async function verifyEmployeeCode(req, res) {
   const { code } = verifyCodeSchema.parse(req.body);
   const seed = await EmployeeVerificationSeedModel.findOne({ code: code.trim().toUpperCase() });
   if (!seed) fail(400, 'INVALID_EMPLOYEE_CODE', 'That verification code is not valid. Check with HR and try again.');
+  const claimant = await seedClaimant(seed);
+  if (claimant && String(claimant.userId) !== String(req.user._id)) {
+    fail(409, 'CODE_ALREADY_USED', 'This verification code has already been used. Contact HR for a new one.');
+  }
   res.json({ code: seed.code, areaAssigned: seed.areaAssigned, suggestedName: seed.suggestedName });
 }
 
@@ -21,16 +35,40 @@ async function registerEmployee(req, res) {
   const user = req.user;
   let employee = await EmployeeModel.findOne({ userId: user._id });
   if (!employee) {
-    employee = await EmployeeModel.create({
-      userId: user._id,
-      employeeId: seed.employeeId,
-      // Matches the mock's buildReferralCode: strip the "EMP-" prefix and
-      // reuse the seed's own short numeric id (e.g. "EMP-1001" ->
-      // "GK-EMP-1001"), not a hash/padded derivation — HR-issued ids stay
-      // human-readable on printed ID cards.
-      referralCode: `GK-EMP-${seed.employeeId.replace(/^EMP-/, '')}`,
-      areaAssigned: seed.areaAssigned,
-    });
+    // Without this check, a second person entering an already-claimed code
+    // would sail past verify-code (it doesn't check for this either — fixed
+    // above) and only fail here, on Mongoose's unique index for
+    // employeeId/referralCode — an uncaught duplicate-key error, surfaced
+    // to the client as an opaque 500 instead of a real error message.
+    const claimant = await seedClaimant(seed);
+    if (claimant) {
+      fail(409, 'CODE_ALREADY_USED', 'This verification code has already been used. Contact HR for a new one.');
+    }
+    try {
+      employee = await EmployeeModel.create({
+        userId: user._id,
+        employeeId: seed.employeeId,
+        // Matches the mock's buildReferralCode: strip the "EMP-" prefix and
+        // reuse the seed's own short numeric id (e.g. "EMP-1001" ->
+        // "GK-EMP-1001"), not a hash/padded derivation — HR-issued ids stay
+        // human-readable on printed ID cards.
+        referralCode: `GK-EMP-${seed.employeeId.replace(/^EMP-/, '')}`,
+        areaAssigned: seed.areaAssigned,
+      });
+    } catch (err) {
+      // Race backstop: two requests for the same fresh code arriving
+      // concurrently can both pass the claimant check above before either
+      // finishes creating — the unique index is the real guarantee here,
+      // so translate its failure into the same clean error rather than a 500.
+      if (err.code === 11000) {
+        fail(409, 'CODE_ALREADY_USED', 'This verification code has already been used. Contact HR for a new one.');
+      }
+      throw err;
+    }
+    if (!seed.used) {
+      seed.used = true;
+      await seed.save();
+    }
   }
   if (!user.roles.includes('employee')) {
     user.roles.push('employee');
