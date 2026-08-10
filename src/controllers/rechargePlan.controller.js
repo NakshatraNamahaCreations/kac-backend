@@ -12,6 +12,7 @@ async function listPlansAdmin(_req, res) {
 
 const planSchema = z.object({
   coins: z.number().int().positive(),
+  calls: z.number().int().positive(),
   label: z.string().optional(),
   sortOrder: z.number().int().optional(),
 });
@@ -20,6 +21,7 @@ async function createPlan(req, res) {
   const body = planSchema.parse(req.body);
   const plan = await RechargePlanModel.create({
     coins: body.coins,
+    calls: body.calls,
     label: body.label || null,
     sortOrder: body.sortOrder ?? 0,
   });
@@ -28,6 +30,7 @@ async function createPlan(req, res) {
 
 const updatePlanSchema = z.object({
   coins: z.number().int().positive().optional(),
+  calls: z.number().int().positive().optional(),
   label: z.string().nullable().optional(),
   active: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
