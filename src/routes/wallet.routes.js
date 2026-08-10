@@ -8,6 +8,7 @@ const {
   recharge: rechargeCustomerWallet,
   debit: debitCustomerWallet,
 } = require('../controllers/customerWallet.controller');
+const { listPlansPublic } = require('../controllers/rechargePlan.controller');
 
 const walletRouter = Router();
 walletRouter.use(requireAuth);
@@ -26,5 +27,6 @@ walletRouter.get('/wallet/customer', asyncHandler(getCustomerWallet));
 walletRouter.get('/wallet/customer/ledger', asyncHandler(getCustomerWalletLedger));
 walletRouter.post('/wallet/customer/recharge', asyncHandler(rechargeCustomerWallet));
 walletRouter.post('/wallet/customer/debit', asyncHandler(debitCustomerWallet));
+walletRouter.get('/wallet/customer/plans', asyncHandler(listPlansPublic));
 
 module.exports = { walletRouter };
