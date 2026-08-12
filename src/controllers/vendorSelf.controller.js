@@ -14,6 +14,12 @@ const serviceSchema = z.object({
   pricePaise: z.number().int().positive(),
 });
 
+// Hard cap on Vendor.services (the flat name+price list) — independent of
+// how many categories a vendor holds. Mirrored client-side in
+// StepCategories.jsx and AddServiceScreen.jsx (both named MAX_SERVICE_ITEMS)
+// so the UI never lets a vendor stage more than the server will accept.
+const MAX_SERVICE_ITEMS = 3;
+
 // Only the masked form is ever persisted — mirrors wallet.controller.js's
 // addBankAccount, which does the same for agent payout accounts.
 function maskAccountNumber(accountNumber) {
@@ -30,7 +36,7 @@ const registerSchema = z.object({
   // Vendor-defined services (own name + price). Falls back to a generic
   // catalog per category if omitted, for backward compatibility with
   // clients that haven't picked up the dynamic-services wizard step yet.
-  services: z.array(serviceSchema).optional(),
+  services: z.array(serviceSchema).max(MAX_SERVICE_ITEMS).optional(),
   area: z.string(),
   hours: z.string(),
   photoKey: z.string().optional(),
@@ -186,7 +192,7 @@ const patchVendorSchema = z.object({
   categories: z.array(z.string()).optional(),
   // Vendor-defined services for a newly-added category (own name + price).
   // Falls back to the generic catalog if omitted.
-  services: z.array(serviceSchema).optional(),
+  services: z.array(serviceSchema).max(MAX_SERVICE_ITEMS).optional(),
   // Bank account edits (BankAccountScreen/AddBankAccountScreen) — raw
   // accountNumber in, masked form persisted, same as registration.
   bank: z.object({ accountNumber: z.string(), ifsc: z.string(), accountHolder: z.string() }).optional(),
@@ -257,11 +263,15 @@ async function patchMyVendor(req, res) {
   if (categories) {
     const existing = new Set(vendor.categories);
     const added = categories.filter((c) => !existing.has(c));
-    if (services && services.length > 0) {
-      vendor.services.push(...services);
-    } else if (added.length > 0) {
-      vendor.services.push(...servicesForCategories(added));
+    const toAdd = services && services.length > 0 ? services : added.length > 0 ? servicesForCategories(added) : [];
+    if (vendor.services.length + toAdd.length > MAX_SERVICE_ITEMS) {
+      fail(
+        400,
+        'SERVICE_LIMIT',
+        `You can have at most ${MAX_SERVICE_ITEMS} services in total. Remove one before adding another.`,
+      );
     }
+    if (toAdd.length > 0) vendor.services.push(...toAdd);
     vendor.categories = categories;
   }
 
