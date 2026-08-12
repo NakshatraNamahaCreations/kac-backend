@@ -11,20 +11,24 @@ const VENDOR_ADDITIONAL_PAISE = 40800;
 const AGENT_MEMBERSHIP_PAISE = 50800;
 
 // Initial vendor registration instead scales with the chosen plan (admin-
-// managed — see VendorPlan model / vendorPlan.controller.js) and uses 18%
-// GST (not the flat ₹9 the other two fees use). basePaise is read from the
-// SAME collection StepPayment.jsx fetches to render the picker — previously
-// this was a separately hardcoded object that had to be kept in sync by
-// hand, which is exactly the kind of drift that makes
-// RazorpayCheckout.open() reject the payment (its `amount` must match what
-// the order was actually created for).
+// managed — see VendorPlan model / vendorPlan.controller.js, any number of
+// tiers) and uses 18% GST (not the flat ₹9 the other two fees use).
+// basePaise is read from the SAME collection StepPayment.jsx fetches to
+// render the picker — previously this was a separately hardcoded object
+// that had to be kept in sync by hand, which is exactly the kind of drift
+// that makes RazorpayCheckout.open() reject the payment (its `amount` must
+// match what the order was actually created for).
 const GST_RATE_PERCENT = 18;
-const FALLBACK_BASE_PAISE = { BASIC: 49900, PRO: 99900 };
+// Only used if the VendorPlan collection is completely empty (should never
+// happen post-seed) — a last-resort so order creation doesn't hard-crash.
+const FALLBACK_BASE_PAISE = 49900;
 
 async function vendorInitialAmountPaise(plan) {
-  const tier = plan && FALLBACK_BASE_PAISE[plan] ? plan : 'BASIC';
-  const planDoc = await VendorPlanModel.findOne({ tier });
-  const basePaise = planDoc?.baseFeePaise ?? FALLBACK_BASE_PAISE[tier];
+  const planDoc = plan
+    ? await VendorPlanModel.findOne({ tier: plan })
+    : await VendorPlanModel.findOne({}).sort({ sortOrder: 1 });
+  if (plan && !planDoc) fail(400, 'INVALID_PLAN', 'Selected plan is no longer available.');
+  const basePaise = planDoc?.baseFeePaise ?? FALLBACK_BASE_PAISE;
   const gstPaise = Math.round((basePaise * GST_RATE_PERCENT) / 100);
   return basePaise + gstPaise;
 }
@@ -32,7 +36,7 @@ async function vendorInitialAmountPaise(plan) {
 const vendorOrderSchema = z.object({
   vendorId: z.string(),
   purpose: z.enum(['INITIAL_REGISTRATION', 'ADDITIONAL_SERVICE']).optional(),
-  plan: z.enum(['BASIC', 'PRO']).optional(),
+  plan: z.string().optional(),
 });
 
 async function createVendorOrder(req, res) {

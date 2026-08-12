@@ -104,8 +104,12 @@ async function acceptBooking(req, res) {
     fail(403, 'FORBIDDEN', 'Only the vendor on this booking can accept it.');
   }
   if (booking.status !== 'REQUESTED') fail(400, 'INVALID_STATUS', 'Booking is not pending.');
-  if (vendor.plan === 'BASIC' && vendor.serviceQuota != null && vendor.servicesUsed >= vendor.serviceQuota) {
-    fail(402, 'QUOTA_EXCEEDED', 'You have used all completed jobs on the Basic plan. Upgrade to Pro to accept more.');
+  // Quota is driven purely by serviceQuota being non-null (null = unlimited,
+  // set per-plan at registration — see VendorPlan.serviceQuota), not by the
+  // plan's name. Previously this only fired when vendor.plan === 'BASIC',
+  // which meant any admin-added tier with a finite quota was never enforced.
+  if (vendor.serviceQuota != null && vendor.servicesUsed >= vendor.serviceQuota) {
+    fail(402, 'QUOTA_EXCEEDED', 'You have used all completed jobs on your current plan. Upgrade to accept more.');
   }
   booking.status = 'ACCEPTED';
   await booking.save();

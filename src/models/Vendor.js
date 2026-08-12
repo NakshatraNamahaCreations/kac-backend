@@ -47,7 +47,9 @@ const vendorSchema = new Schema(
     // Set at registration — stored (not just derived from vendorReferralCode())
     // so a referral-code entered by someone else can actually be looked up.
     referralCode: { type: String, default: null, index: true },
-    plan: { type: String, enum: ['BASIC', 'PRO'], default: 'BASIC' },
+    // Free-form tier identifier matching an admin-managed VendorPlan.tier —
+    // no longer a fixed enum since admins can add/remove tiers.
+    plan: { type: String, default: 'BASIC' },
     serviceQuota: { type: Number, default: 10 },
     servicesUsed: { type: Number, default: 0 },
     verificationStatus: {

@@ -42,7 +42,7 @@ const registerSchema = z.object({
   addressPincode: z.string().optional(),
   locationLat: z.number().optional(),
   locationLng: z.number().optional(),
-  plan: z.enum(['BASIC', 'PRO']).optional(),
+  plan: z.string().optional(),
   referralCode: z.string().optional(),
   // KYC — the wizard collects these on StepDocs but the schema previously
   // omitted them, so Zod silently stripped them before they ever reached
@@ -65,12 +65,15 @@ async function registerVendor(req, res) {
   let vendor = await VendorModel.findOne({ userId: user._id });
   if (vendor) fail(409, 'ALREADY_REGISTERED', 'You have already registered as a vendor.');
 
-  const tier = body.plan ?? 'BASIC';
   // Same admin-managed source payments.controller.js prices the order
   // against — was previously a third hardcoded `plan === 'PRO' ? null : 10`
   // copy here, independent of the other two and just as easy to drift.
-  const planDoc = await VendorPlanModel.findOne({ tier });
-  const serviceQuota = planDoc ? planDoc.serviceQuota : tier === 'PRO' ? null : 10;
+  let planDoc = body.plan
+    ? await VendorPlanModel.findOne({ tier: body.plan })
+    : await VendorPlanModel.findOne({}).sort({ sortOrder: 1 });
+  if (body.plan && !planDoc) fail(400, 'INVALID_PLAN', 'Selected plan is no longer available.');
+  const tier = planDoc ? planDoc.tier : 'BASIC';
+  const serviceQuota = planDoc ? planDoc.serviceQuota : 10;
 
   vendor = await VendorModel.create({
     userId: user._id,

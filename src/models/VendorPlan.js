@@ -1,20 +1,21 @@
 const { Schema, model } = require('mongoose');
 const { applyIdTransform } = require('./plugins');
 
-// The two vendor registration tiers — used to be hardcoded in
-// StepPayment.jsx (mobile) AND duplicated again in payments.controller.js's
+// Vendor registration tiers — used to be hardcoded in StepPayment.jsx
+// (mobile) AND duplicated again in payments.controller.js's
 // VENDOR_PLAN_BASE_PAISE AND a third time in vendorSelf.controller.js's
-// registerVendor. All three now read from this single collection instead,
-// so an admin price/quota edit can't silently drift out of sync with what
-// Razorpay actually charges (a mismatch there makes RazorpayCheckout.open()
-// reject the payment outright).
+// registerVendor. All three now read from this single admin-managed
+// collection instead, so a price/quota edit can't silently drift out of
+// sync with what Razorpay actually charges (a mismatch there makes
+// RazorpayCheckout.open() reject the payment outright).
 //
-// `tier` is intentionally a fixed enum, not free text — Vendor.plan and the
-// booking-quota gate in agent.controller.js's acceptBooking both assume
-// exactly these two tiers exist. Admins edit price/copy, not add new tiers.
+// `tier` is the stable identity — Vendor.plan stores this same string, and
+// the booking-quota gate in bookings.controller.js's acceptBooking reads
+// serviceQuota off the vendor record itself (not the tier name), so admins
+// are free to add/rename/remove tiers without touching that logic.
 const vendorPlanSchema = new Schema(
   {
-    tier: { type: String, enum: ['BASIC', 'PRO'], required: true, unique: true },
+    tier: { type: String, required: true, unique: true, uppercase: true, trim: true },
     label: { type: String, required: true },
     tagline: { type: String, default: '' },
     baseFeePaise: { type: Number, required: true, min: 0 },
