@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { Types } = require('mongoose');
 const { CategoryModel } = require('../models/Category');
 const { fail } = require('../lib/httpError');
 
@@ -32,6 +33,14 @@ const createSchema = z.object({
 // customer home/category grids all read straight off this collection via
 // GET /categories, so a new category here shows up in the app immediately —
 // no client release needed.
+//
+// _id: the 24 launch categories were seeded with human-readable slug ids
+// ("cat_plumber") baked into old mobile-app fixtures — CategoryModel keeps
+// `_id` typed as String to preserve those, but new admin-created categories
+// get a real, normal MongoDB ObjectId (stringified) instead of a synthesized
+// "cat_xxx" label. Nothing downstream cares which format an id is in —
+// Vendor.categories/Onboarding.categoryIds are plain opaque strings either
+// way — so this is safe to mix with the legacy slug ids.
 async function createCategory(req, res) {
   const body = createSchema.parse(req.body);
   const slug = slugify(body.name);
@@ -39,7 +48,7 @@ async function createCategory(req, res) {
   const existing = await CategoryModel.findOne({ slug });
   if (existing) fail(409, 'SLUG_EXISTS', 'A category with this name already exists.');
   const category = await CategoryModel.create({
-    _id: `cat_${slug.replace(/-/g, '_')}`,
+    _id: new Types.ObjectId().toString(),
     slug,
     ...body,
   });
