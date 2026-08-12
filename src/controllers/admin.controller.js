@@ -11,6 +11,7 @@ const { signAdminToken } = require('../lib/jwt');
 const { fail } = require('../lib/httpError');
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { customerReferralCode, vendorReferralCode, agentReferralCode } = require('../lib/referralCode');
+const { io } = require('../realtime/socket');
 
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -257,6 +258,35 @@ async function getUserDetail(req, res) {
   res.json({ role: 'customer', ...user.toJSON() });
 }
 
+const updateVendorVerificationSchema = z.object({ verified: z.boolean() });
+
+// `verified` (the badge customers see on VendorCard/VendorProfileScreen)
+// and `verificationStatus` (PENDING_PAYMENT/PENDING_VERIFICATION/ACTIVE/
+// SUSPENDED) used to be two dead-end fields with nothing to ever move them
+// past their creation-time default — this admin action is what finally
+// drives both. Kept in lockstep here rather than exposed as two separate
+// controls since nothing else in the app treats them as independent (a
+// vendor is either fully live or it isn't).
+async function updateVendorVerification(req, res) {
+  const { verified } = updateVendorVerificationSchema.parse(req.body);
+  const vendor = await VendorModel.findById(req.params.id);
+  if (!vendor) fail(404, 'NOT_FOUND', 'Vendor not found.');
+
+  vendor.verified = verified;
+  vendor.verificationStatus = verified ? 'ACTIVE' : 'PENDING_VERIFICATION';
+  await vendor.save();
+
+  // SocketProvider.jsx's 'vendor.verified' case already expects exactly
+  // this event/payload shape — it was just never emitted from anywhere
+  // server-side until now, so a verified vendor's own app never updated
+  // live without a manual refresh.
+  io()?.to(`user:${String(vendor.userId)}`).emit('vendor.verified', {
+    status: vendor.verificationStatus,
+  });
+
+  res.json(vendor.toJSON());
+}
+
 // Sequential-looking ids (EMP-1001, EMP-1002, ...) — admin-direct-create has
 // no HR-issued seed row to borrow one from (see employee.controller.js's
 // self-service registerEmployee, which reads employeeId off a pre-seeded
@@ -395,6 +425,7 @@ module.exports = {
   getStats,
   listUsers,
   getUserDetail,
+  updateVendorVerification,
   createUser,
   listBookings,
 };

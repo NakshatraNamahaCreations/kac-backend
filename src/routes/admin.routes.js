@@ -10,6 +10,7 @@ const {
   getUserDetail,
   listBookings,
   listUsers,
+  updateVendorVerification,
 } = require('../controllers/admin.controller');
 const {
   createPlan,
@@ -43,6 +44,7 @@ adminRouter.get('/admin/stats', asyncHandler(getStats));
 adminRouter.get('/admin/users', asyncHandler(listUsers));
 adminRouter.get('/admin/users/:role/:id', asyncHandler(getUserDetail));
 adminRouter.post('/admin/users', asyncHandler(createUser));
+adminRouter.patch('/admin/users/vendor/:id/verify', asyncHandler(updateVendorVerification));
 adminRouter.get('/admin/bookings', asyncHandler(listBookings));
 adminRouter.get('/admin/plans', asyncHandler(listPlansAdmin));
 adminRouter.post('/admin/plans', asyncHandler(createPlan));
