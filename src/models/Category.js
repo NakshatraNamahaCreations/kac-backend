@@ -8,6 +8,9 @@ const categorySchema = new Schema({
   name: { type: String, required: true },
   description: { type: String, required: true },
   iconKey: { type: String, required: true },
+  // Optional real image (admin-uploaded URL) — when unset, clients fall
+  // back to the iconKey -> lucide-icon lookup they already had.
+  imageUrl: { type: String, default: null },
   suggestedMinPaise: { type: Number },
   suggestedMaxPaise: { type: Number },
   active: { type: Boolean, default: true },

@@ -23,6 +23,12 @@ const {
   listVendorPlansAdmin,
   updateVendorPlan,
 } = require('../controllers/vendorPlan.controller');
+const {
+  createCategory,
+  deleteCategory,
+  listCategoriesAdmin,
+  updateCategory,
+} = require('../controllers/categoriesAdmin.controller');
 
 const adminRouter = Router();
 
@@ -46,5 +52,9 @@ adminRouter.get('/admin/vendor-plans', asyncHandler(listVendorPlansAdmin));
 adminRouter.post('/admin/vendor-plans', asyncHandler(createVendorPlan));
 adminRouter.patch('/admin/vendor-plans/:tier', asyncHandler(updateVendorPlan));
 adminRouter.delete('/admin/vendor-plans/:tier', asyncHandler(deleteVendorPlan));
+adminRouter.get('/admin/categories', asyncHandler(listCategoriesAdmin));
+adminRouter.post('/admin/categories', asyncHandler(createCategory));
+adminRouter.patch('/admin/categories/:id', asyncHandler(updateCategory));
+adminRouter.delete('/admin/categories/:id', asyncHandler(deleteCategory));
 
 module.exports = { adminRouter };
