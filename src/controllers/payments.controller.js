@@ -2,13 +2,21 @@ const { z } = require('zod');
 const { createOrder, verifyPaymentSignature } = require('../lib/razorpay');
 const { fail } = require('../lib/httpError');
 const { VendorPlanModel } = require('../models/VendorPlan');
+const { AgentPlanModel, SINGLETON_ID: AGENT_PLAN_ID } = require('../models/AgentPlan');
 
 // ₹399 + ₹9 flat GST = ₹408 (40800 paise) for adding a service to an
-// existing vendor, and the agent membership fee is ₹499 + ₹9 flat GST =
-// ₹508 (50800 paise). Mirrors AddServiceScreen.jsx / AgentRegisterMembershipScreen.jsx
-// — keep in sync if those change.
+// existing vendor. Mirrors AddServiceScreen.jsx — keep in sync if it changes.
 const VENDOR_ADDITIONAL_PAISE = 40800;
-const AGENT_MEMBERSHIP_PAISE = 50800;
+
+// Agent membership uses a flat ₹9 GST (not the 18% vendor plans use) —
+// basePaise is admin-managed (see AgentPlan model / agentPlan.controller.js)
+// and read from the SAME collection AgentRegisterMembershipScreen.jsx
+// fetches to render the fee card, so an admin price edit can't drift out of
+// sync with what Razorpay actually charges.
+const AGENT_GST_PAISE = 900;
+// Only used if the AgentPlan singleton is somehow missing — a last-resort
+// so order creation doesn't hard-crash.
+const AGENT_FALLBACK_BASE_PAISE = 49900;
 
 // Initial vendor registration instead scales with the chosen plan (admin-
 // managed — see VendorPlan model / vendorPlan.controller.js, any number of
@@ -53,7 +61,10 @@ const agentOrderSchema = z.object({ purpose: z.enum(['INITIAL_REGISTRATION']).op
 
 async function createAgentOrder(req, res) {
   agentOrderSchema.parse(req.body ?? {});
-  const order = await createOrder(AGENT_MEMBERSHIP_PAISE, `agent_${String(req.user._id)}`);
+  const plan = await AgentPlanModel.findById(AGENT_PLAN_ID);
+  const basePaise = plan?.baseFeePaise ?? AGENT_FALLBACK_BASE_PAISE;
+  const amountPaise = basePaise + AGENT_GST_PAISE;
+  const order = await createOrder(amountPaise, `agent_${String(req.user._id)}`);
   res.status(201).json(order);
 }
 

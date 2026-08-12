@@ -30,6 +30,7 @@ const {
   listCategoriesAdmin,
   updateCategory,
 } = require('../controllers/categoriesAdmin.controller');
+const { getAgentPlanAdmin, updateAgentPlan } = require('../controllers/agentPlan.controller');
 
 const adminRouter = Router();
 
@@ -58,5 +59,7 @@ adminRouter.get('/admin/categories', asyncHandler(listCategoriesAdmin));
 adminRouter.post('/admin/categories', asyncHandler(createCategory));
 adminRouter.patch('/admin/categories/:id', asyncHandler(updateCategory));
 adminRouter.delete('/admin/categories/:id', asyncHandler(deleteCategory));
+adminRouter.get('/admin/agent-plan', asyncHandler(getAgentPlanAdmin));
+adminRouter.patch('/admin/agent-plan', asyncHandler(updateAgentPlan));
 
 module.exports = { adminRouter };
