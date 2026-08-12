@@ -14,7 +14,7 @@ async function creditVendorReferrer(referralCode, referredUserId, referredName, 
   if (!vendor) return false;
   if (referredUserId && String(vendor.userId) === String(referredUserId)) return false;
 
-  await creditAgentCoins(vendor.userId, 'Referral bonus', referredName, null);
+  await creditAgentCoins(vendor.userId, 'Referral bonus', referredName, null, COINS_PER_VENDOR_REFERRAL);
   await VendorReferralModel.create({
     referrerVendorId: vendor._id,
     referredName,

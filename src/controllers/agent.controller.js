@@ -170,31 +170,38 @@ async function creditOnboardingForVendorPhone(vendorPhone, vendorName) {
   onboarding.earningsCoins = COINS_PER_ONBOARDING;
   await onboarding.save();
 
-  await creditAgentCoins(onboarding.agentId, 'Onboarding bonus', vendorName, onboarding._id);
+  await creditAgentCoins(onboarding.agentId, 'Onboarding bonus', vendorName, onboarding._id, COINS_PER_ONBOARDING);
   return true;
 }
 
-// Shared crediting path for both the phone-prearranged onboarding flow above
-// and a vendor/new-agent directly typing an agent's referral code at signup
-// (no prior Onboarding record needed for that path). `name` is the referred
-// vendor/agent's name — included in both the ledger description and the
-// socket payload, since SocketProvider.jsx's toast reads `p.vendorName`.
-async function creditAgentCoins(agentUserId, reason, name, onboardingId) {
+// Shared crediting path for both the phone-prearranged onboarding flow above,
+// a vendor/new-agent directly typing an agent's referral code at signup (no
+// prior Onboarding record needed for that path), AND a vendor referring
+// someone via vendorReferral.controller.js's creditVendorReferrer (which
+// also routes through here — a vendor's wallet is the same Agent document
+// as an agent's, see requireOwnAgent). `amount` is the caller's own coin
+// constant (COINS_PER_ONBOARDING here, COINS_PER_VENDOR_REFERRAL there) —
+// passed explicitly rather than hardcoded in this shared function, so the
+// two referral tiers can't silently drift apart from what each caller
+// actually intends to pay. `name` is the referred vendor/agent's name —
+// included in both the ledger description and the socket payload, since
+// SocketProvider.jsx's toast reads `p.vendorName`.
+async function creditAgentCoins(agentUserId, reason, name, onboardingId, amount) {
   const agent = await requireOwnAgent(agentUserId);
-  agent.walletCoins += COINS_PER_ONBOARDING;
+  agent.walletCoins += amount;
   await agent.save();
 
   await LedgerEntryModel.create({
     ownerId: agentUserId,
     kind: 'credit',
-    coins: COINS_PER_ONBOARDING,
+    coins: amount,
     balance: agent.walletCoins,
     description: `${reason} — ${name}`,
     onboardingId: onboardingId ?? null,
   });
 
   io()?.to(`user:${String(agentUserId)}`).emit('wallet.credited', {
-    coins: COINS_PER_ONBOARDING,
+    coins: amount,
     balance: agent.walletCoins,
     onboardingId: onboardingId ? String(onboardingId) : null,
     vendorName: name,
@@ -217,7 +224,7 @@ async function creditReferralCodeForAgent(referralCode, referredName, referredPh
     earningsCoins: COINS_PER_ONBOARDING,
   });
 
-  await creditAgentCoins(agent.userId, 'Referral bonus', referredName, onboarding._id);
+  await creditAgentCoins(agent.userId, 'Referral bonus', referredName, onboarding._id, COINS_PER_ONBOARDING);
   return true;
 }
 
