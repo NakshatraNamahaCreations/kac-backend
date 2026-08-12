@@ -2,6 +2,7 @@ const { Router } = require('express');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { requireAuth } = require('../middleware/auth');
 const { listCategories } = require('../controllers/categories.controller');
+const { listVendorPlansPublic } = require('../controllers/vendorPlan.controller');
 const {
   createVendorReview,
   getVendor,
@@ -12,6 +13,7 @@ const {
 const catalogRouter = Router();
 
 catalogRouter.get('/categories', asyncHandler(listCategories));
+catalogRouter.get('/vendor-plans', asyncHandler(listVendorPlansPublic));
 
 catalogRouter.get('/vendors', asyncHandler(listVendors));
 catalogRouter.get('/vendors/:id', asyncHandler(getVendor));

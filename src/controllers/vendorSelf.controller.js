@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { VendorModel } = require('../models/Vendor');
+const { VendorPlanModel } = require('../models/VendorPlan');
 const { BookingModel } = require('../models/Booking');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
 const { fail } = require('../lib/httpError');
@@ -64,6 +65,13 @@ async function registerVendor(req, res) {
   let vendor = await VendorModel.findOne({ userId: user._id });
   if (vendor) fail(409, 'ALREADY_REGISTERED', 'You have already registered as a vendor.');
 
+  const tier = body.plan ?? 'BASIC';
+  // Same admin-managed source payments.controller.js prices the order
+  // against — was previously a third hardcoded `plan === 'PRO' ? null : 10`
+  // copy here, independent of the other two and just as easy to drift.
+  const planDoc = await VendorPlanModel.findOne({ tier });
+  const serviceQuota = planDoc ? planDoc.serviceQuota : tier === 'PRO' ? null : 10;
+
   vendor = await VendorModel.create({
     userId: user._id,
     name: body.businessName ?? user.name ?? 'Your business',
@@ -86,8 +94,8 @@ async function registerVendor(req, res) {
     personName: body.personName ?? user.name ?? undefined,
     address: body.address,
     addressPincode: body.addressPincode,
-    plan: body.plan ?? 'BASIC',
-    serviceQuota: body.plan === 'PRO' ? null : 10,
+    plan: tier,
+    serviceQuota,
     servicesUsed: 0,
     verificationStatus: 'PENDING_PAYMENT',
     bank: {

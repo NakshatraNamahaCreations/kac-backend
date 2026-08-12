@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { createOrder, verifyPaymentSignature } = require('../lib/razorpay');
 const { fail } = require('../lib/httpError');
+const { VendorPlanModel } = require('../models/VendorPlan');
 
 // ₹399 + ₹9 flat GST = ₹408 (40800 paise) for adding a service to an
 // existing vendor, and the agent membership fee is ₹499 + ₹9 flat GST =
@@ -9,16 +10,21 @@ const { fail } = require('../lib/httpError');
 const VENDOR_ADDITIONAL_PAISE = 40800;
 const AGENT_MEMBERSHIP_PAISE = 50800;
 
-// Initial vendor registration instead scales with the chosen plan and uses
-// 18% GST (not the flat ₹9 the other two fees use) — mirrors PLANS /
-// gstForBasePaise in StepPayment.jsx exactly. A mismatch here makes
-// RazorpayCheckout.open() fail, since its `amount` must match what the
-// order was actually created for.
+// Initial vendor registration instead scales with the chosen plan (admin-
+// managed — see VendorPlan model / vendorPlan.controller.js) and uses 18%
+// GST (not the flat ₹9 the other two fees use). basePaise is read from the
+// SAME collection StepPayment.jsx fetches to render the picker — previously
+// this was a separately hardcoded object that had to be kept in sync by
+// hand, which is exactly the kind of drift that makes
+// RazorpayCheckout.open() reject the payment (its `amount` must match what
+// the order was actually created for).
 const GST_RATE_PERCENT = 18;
-const VENDOR_PLAN_BASE_PAISE = { BASIC: 49900, PRO: 99900 };
+const FALLBACK_BASE_PAISE = { BASIC: 49900, PRO: 99900 };
 
-function vendorInitialAmountPaise(plan) {
-  const basePaise = VENDOR_PLAN_BASE_PAISE[plan] ?? VENDOR_PLAN_BASE_PAISE.BASIC;
+async function vendorInitialAmountPaise(plan) {
+  const tier = plan && FALLBACK_BASE_PAISE[plan] ? plan : 'BASIC';
+  const planDoc = await VendorPlanModel.findOne({ tier });
+  const basePaise = planDoc?.baseFeePaise ?? FALLBACK_BASE_PAISE[tier];
   const gstPaise = Math.round((basePaise * GST_RATE_PERCENT) / 100);
   return basePaise + gstPaise;
 }
@@ -34,7 +40,7 @@ async function createVendorOrder(req, res) {
   const amountPaise =
     body.purpose === 'ADDITIONAL_SERVICE'
       ? VENDOR_ADDITIONAL_PAISE
-      : vendorInitialAmountPaise(body.plan);
+      : await vendorInitialAmountPaise(body.plan);
   const order = await createOrder(amountPaise, `vendor_${body.vendorId}_${body.purpose ?? 'INITIAL_REGISTRATION'}`);
   res.status(201).json(order);
 }

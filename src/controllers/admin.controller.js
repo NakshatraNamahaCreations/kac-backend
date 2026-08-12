@@ -82,15 +82,30 @@ async function adminChangePassword(req, res) {
 }
 
 async function getStats(_req, res) {
-  const [customers, vendors, agents, employees, bookingsByStatus] = await Promise.all([
+  const [customers, vendors, agents, employees, bookingsByStatus, allBookings] = await Promise.all([
     UserModel.countDocuments({ roles: 'customer' }),
     VendorModel.countDocuments(),
     AgentModel.countDocuments(),
     EmployeeModel.countDocuments(),
     BookingModel.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+    // Only createdAt is needed for the trend below — avoid pulling full
+    // documents for what could eventually be a large collection.
+    BookingModel.find({}).select('createdAt'),
   ]);
   const byStatus = Object.fromEntries(bookingsByStatus.map((s) => [s._id, s.count]));
   const totalBookings = bookingsByStatus.reduce((sum, s) => sum + s.count, 0);
+
+  // Last 6 months, oldest first — mirrors the exact windowing pattern in
+  // employee.controller.js's getEmployeeDashboard for consistency.
+  const now = new Date();
+  const trend = [];
+  for (let i = 5; i >= 0; i--) {
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+    const count = allBookings.filter((b) => b.createdAt >= start && b.createdAt < end).length;
+    trend.push({ month: start.toLocaleString('en-US', { month: 'short' }), bookings: count });
+  }
+
   res.json({
     customers,
     vendors,
@@ -104,6 +119,7 @@ async function getStats(_req, res) {
       completed: byStatus.COMPLETED ?? 0,
       declined: byStatus.DECLINED ?? 0,
       cancelled: byStatus.CANCELLED ?? 0,
+      trend,
     },
   });
 }

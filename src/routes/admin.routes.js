@@ -17,6 +17,10 @@ const {
   listPlansAdmin,
   updatePlan,
 } = require('../controllers/rechargePlan.controller');
+const {
+  listVendorPlansAdmin,
+  updateVendorPlan,
+} = require('../controllers/vendorPlan.controller');
 
 const adminRouter = Router();
 
@@ -36,5 +40,7 @@ adminRouter.get('/admin/plans', asyncHandler(listPlansAdmin));
 adminRouter.post('/admin/plans', asyncHandler(createPlan));
 adminRouter.patch('/admin/plans/:id', asyncHandler(updatePlan));
 adminRouter.delete('/admin/plans/:id', asyncHandler(deletePlan));
+adminRouter.get('/admin/vendor-plans', asyncHandler(listVendorPlansAdmin));
+adminRouter.patch('/admin/vendor-plans/:tier', asyncHandler(updateVendorPlan));
 
 module.exports = { adminRouter };
