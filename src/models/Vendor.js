@@ -40,10 +40,6 @@ const vendorSchema = new Schema(
     address: { type: String },
     addressPincode: { type: String },
     serviceTags: { type: [String], default: undefined },
-    referralStats: {
-      appInstalls: { type: Number, default: 0 },
-      activations: { type: Number, default: 0 },
-    },
     // Set at registration — stored (not just derived from vendorReferralCode())
     // so a referral-code entered by someone else can actually be looked up.
     referralCode: { type: String, default: null, index: true },

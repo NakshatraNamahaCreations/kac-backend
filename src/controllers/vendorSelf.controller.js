@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { VendorModel } = require('../models/Vendor');
 const { VendorPlanModel } = require('../models/VendorPlan');
+const { VendorReferralModel } = require('../models/VendorReferral');
 const { BookingModel } = require('../models/Booking');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
 const { fail } = require('../lib/httpError');
@@ -173,9 +174,25 @@ async function requireOwnVendor(req) {
   return vendor;
 }
 
+// Real referral numbers for the profile screen's "Referral funnel" card —
+// previously that card read Vendor.referralStats (appInstalls/activations),
+// a field nothing ever wrote to (this backend has no install/click
+// tracking — see README), so it always rendered 0/0/0%. This aggregates
+// the vendor's actual VendorReferralModel rows (one per completed referral
+// redemption, written by vendorReferral.controller.js's
+// creditVendorReferrer) instead — a real count and a real coin total.
+async function getReferralStats(vendorId) {
+  const [row] = await VendorReferralModel.aggregate([
+    { $match: { referrerVendorId: vendorId } },
+    { $group: { _id: null, totalReferrals: { $sum: 1 }, coinsEarned: { $sum: '$coinsEarned' } } },
+  ]);
+  return { totalReferrals: row?.totalReferrals ?? 0, coinsEarned: row?.coinsEarned ?? 0 };
+}
+
 async function getMyVendor(req, res) {
   const vendor = await requireOwnVendor(req);
-  res.json(vendor.toJSON());
+  const referralStats = await getReferralStats(vendor._id);
+  res.json({ ...vendor.toJSON(), referralStats });
 }
 
 const patchVendorSchema = z.object({
