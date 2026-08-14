@@ -32,6 +32,14 @@ const env = {
   razorpayKeyId: process.env.RAZORPAY_KEY_ID ?? '',
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET ?? '',
   devOtpCode: process.env.DEV_OTP_CODE ?? '123456',
+  // Whether requestOtp echoes the real per-request code back in its
+  // response (session.controller.js) — shown outside production by
+  // default, same as before. SHOW_DEV_OTP=true opts a production deploy
+  // into it too (e.g. Render, while no real SMS gateway is wired up)
+  // without touching NODE_ENV itself, since that also gates JWT-secret and
+  // admin-password-hash requirements below — a much bigger blast radius
+  // than intended for what's really just an OTP-visibility toggle.
+  showDevOtp: process.env.SHOW_DEV_OTP === 'true' || !isProduction,
   // Admin panel — a single fixed operator login, deliberately separate from
   // the phone+OTP User/roles system (there's no "admin" role on User; this
   // is its own credential pair + its own JWT secret so an admin token can

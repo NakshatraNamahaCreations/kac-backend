@@ -21,8 +21,6 @@ function generateOtpCode() {
 
 const otpRequestSchema = z.object({ phone: z.string().min(6) });
 
-const isProduction = process.env.NODE_ENV === 'production';
-
 async function requestOtp(req, res) {
   const { phone } = otpRequestSchema.parse(req.body);
   const code = generateOtpCode();
@@ -31,11 +29,12 @@ async function requestOtp(req, res) {
   // Real backend: send via SMS provider here instead of console.log.
   // eslint-disable-next-line no-console
   console.log(`[otp] ${phone} -> ${code} (or DEV_OTP_CODE=${env.devOtpCode})`);
-  // Only ever included outside production — this exists purely so the app
-  // can show the code on-screen while there's no real SMS gateway wired up.
-  // Returning the OTP in the response would defeat the entire point of OTP
-  // verification once real SMS delivery is live.
-  res.json({ requestId: String(doc._id), devCode: isProduction ? undefined : code });
+  // Gated by env.showDevOtp (see config/env.js) — this exists purely so the
+  // app can show the code on-screen while there's no real SMS gateway wired
+  // up. Returning the OTP in the response would defeat the entire point of
+  // OTP verification once real SMS delivery is live, so this must go back
+  // to false the moment one is.
+  res.json({ requestId: String(doc._id), devCode: env.showDevOtp ? code : undefined });
 }
 
 const otpVerifySchema = z.object({ requestId: z.string(), code: z.string().regex(/^\d{6}$/) });
