@@ -11,6 +11,7 @@ const { signAdminToken } = require('../lib/jwt');
 const { fail } = require('../lib/httpError');
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { customerReferralCode, vendorReferralCode, agentReferralCode } = require('../lib/referralCode');
+const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
 
 function escapeRegex(s) {
@@ -319,6 +320,12 @@ const createUserSchema = z.object({
 // OTP any time after — this just pre-provisions the account + role record.
 async function createUser(req, res) {
   const body = createUserSchema.parse(req.body);
+  // Must match exactly what the mobile app's OTP flow looks the user up by
+  // (OtpScreen.jsx always sends `+91` + 10 digits) — otherwise this person
+  // can never actually log into the role just provisioned for them; OTP
+  // login would silently create a second, blank User document instead of
+  // matching this one.
+  const phone = normalizePhone(body.phone);
 
   if (body.role === 'vendor' && !body.categoryId) {
     fail(400, 'CATEGORY_REQUIRED', 'Pick a category for the vendor.');
@@ -327,9 +334,9 @@ async function createUser(req, res) {
     fail(400, 'AREA_REQUIRED', 'Area is required for this role.');
   }
 
-  let user = await UserModel.findOne({ phone: body.phone });
+  let user = await UserModel.findOne({ phone });
   if (!user) {
-    user = await UserModel.create({ phone: body.phone, name: body.name, roles: [] });
+    user = await UserModel.create({ phone, name: body.name, roles: [] });
   } else if (!user.name) {
     user.name = body.name;
   }
