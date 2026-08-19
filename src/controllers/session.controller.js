@@ -3,6 +3,7 @@ const { isValidObjectId } = require('mongoose');
 const { z } = require('zod');
 const { UserModel } = require('../models/User');
 const { OtpRequestModel } = require('../models/OtpRequest');
+const { OnboardingModel } = require('../models/Onboarding');
 const { RefreshTokenModel } = require('../models/RefreshToken');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
 const { newJti, signAccessToken, signRefreshToken, verifyRefreshToken } = require('../lib/jwt');
@@ -71,7 +72,37 @@ async function verifyOtp(req, res) {
   }
 
   const tokens = await issueTokenPair(String(user._id));
-  res.json({ ...tokens, user: user.toJSON(), isNewUser });
+
+  // An agent may have already walked this phone through in-person onboarding
+  // (OnboardVendorScreen.jsx) before the vendor ever opens the app —
+  // categories, KYC docs, GST etc. are already on file. Surface that record
+  // so the client can skip straight to the ₹499/₹999 plan payment instead of
+  // re-asking for what the agent already collected. Only PENDING matters —
+  // once vendorSelf.controller.js's registerVendor flips it to ACTIVE, this
+  // stays null on every later login, same as a vendor with no agent at all.
+  const onboarding = await OnboardingModel.findOne({ vendorPhone: user.phone, status: 'PENDING' });
+  const agentOnboarding = onboarding
+    ? {
+        vendorName: onboarding.vendorName,
+        businessName: onboarding.businessName,
+        ownerName: onboarding.ownerName,
+        categoryIds: onboarding.categoryIds ?? [],
+        serviceTags: onboarding.serviceTags ?? [],
+        area: onboarding.area,
+        aadhaarNumber: onboarding.aadhaarNumber,
+        aadhaarName: onboarding.aadhaarName,
+        aadhaarPhotoKey: onboarding.aadhaarPhotoKey,
+        panNumber: onboarding.panNumber,
+        panPhotoKey: onboarding.panPhotoKey,
+        gstNumber: onboarding.gstNumber,
+        gstPhotoKey: onboarding.gstPhotoKey,
+        establishedYear: onboarding.establishedYear,
+        locationLat: onboarding.locationLat,
+        locationLng: onboarding.locationLng,
+      }
+    : null;
+
+  res.json({ ...tokens, user: user.toJSON(), isNewUser, agentOnboarding });
 }
 
 // Confirms a code without creating/logging into a User session — used when
