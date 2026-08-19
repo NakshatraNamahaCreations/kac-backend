@@ -9,6 +9,7 @@ const {
   requestOtp,
   setPushToken,
   verifyOtp,
+  verifyOtpOnly,
 } = require('../controllers/session.controller');
 const { listMyCustomerReferrals } = require('../controllers/customerReferral.controller');
 
@@ -16,6 +17,7 @@ const sessionRouter = Router();
 
 sessionRouter.post('/auth/otp/request', asyncHandler(requestOtp));
 sessionRouter.post('/auth/otp/verify', asyncHandler(verifyOtp));
+sessionRouter.post('/auth/otp/verify-only', asyncHandler(verifyOtpOnly));
 sessionRouter.post('/auth/refresh', asyncHandler(refresh));
 
 sessionRouter.get('/me', requireAuth, asyncHandler(getMe));

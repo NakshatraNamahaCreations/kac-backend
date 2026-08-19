@@ -74,6 +74,28 @@ async function verifyOtp(req, res) {
   res.json({ ...tokens, user: user.toJSON(), isNewUser });
 }
 
+// Confirms a code without creating/logging into a User session — used when
+// an AGENT verifies a PROSPECTIVE vendor's phone during in-person onboarding
+// (OnboardVendorScreen.jsx). Reusing verifyOtp directly would be wrong here:
+// it looks up-or-creates a User for the phone and issues that identity's own
+// access/refresh tokens, which would hijack the agent's own logged-in
+// session on their device. This does the same code/consumed check with none
+// of those side effects.
+async function verifyOtpOnly(req, res) {
+  const body = otpVerifySchema.parse(req.body);
+  if (!isValidObjectId(body.requestId)) {
+    fail(400, 'INVALID_REQUEST', 'Verification session expired. Request a new code.');
+  }
+  const otp = await OtpRequestModel.findById(body.requestId);
+  if (!otp || otp.consumed) fail(400, 'INVALID_REQUEST', 'Verification session expired. Request a new code.');
+  if (body.code !== otp.code && body.code !== env.devOtpCode) {
+    fail(400, 'INVALID_CODE', 'That code is incorrect.');
+  }
+  otp.consumed = true;
+  await otp.save();
+  res.json({ verified: true, phone: otp.phone });
+}
+
 const refreshSchema = z.object({ refreshToken: z.string() });
 
 async function refresh(req, res) {
@@ -180,6 +202,7 @@ async function setPushToken(req, res) {
 module.exports = {
   requestOtp,
   verifyOtp,
+  verifyOtpOnly,
   refresh,
   getMe,
   patchMe,

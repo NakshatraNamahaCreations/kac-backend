@@ -5,6 +5,7 @@ const { LedgerEntryModel } = require('../models/LedgerEntry');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
 const { agentReferralCode, detectReferralKind } = require('../lib/referralCode');
 const { buildPage, parseCursor } = require('../lib/pagination');
+const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
 
 // Lazy require — vendorReferral.controller.js requires agent.controller.js
@@ -138,7 +139,19 @@ const onboardSchema = z.object({
 async function createOnboarding(req, res) {
   const body = onboardSchema.parse(req.body);
   await requireOwnAgent(req.user._id);
-  const onboarding = await OnboardingModel.create({ ...body, agentId: req.user._id, status: 'PENDING', earningsCoins: 0 });
+  // Must match the exact format creditOnboardingForVendorPhone later looks
+  // this record up by (the vendor's own OTP-authenticated phone, which is
+  // always +91 + 10 digits) — same defense-in-depth normalization as
+  // admin.controller.js's createUser, so a client-side format slip can't
+  // silently strand the agent's cashback.
+  const vendorPhone = normalizePhone(body.vendorPhone);
+  const onboarding = await OnboardingModel.create({
+    ...body,
+    vendorPhone,
+    agentId: req.user._id,
+    status: 'PENDING',
+    earningsCoins: 0,
+  });
   res.status(201).json({ onboardingId: String(onboarding._id), status: 'PENDING' });
 }
 
