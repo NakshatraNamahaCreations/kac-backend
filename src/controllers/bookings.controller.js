@@ -150,6 +150,8 @@ async function createManualBooking(req, res) {
     slot: 'ASAP',
     notes: body.notes ?? null,
     status: 'REQUESTED',
+    referredBy: req.user._id,
+    referralFeeCoins: feeCoins,
   });
 
   res.status(201).json(booking.toJSON());
@@ -165,6 +167,11 @@ async function listBookings(req, res) {
   if (role === 'vendor') {
     const vendor = await VendorModel.findOne({ userId: req.user._id });
     filter.vendorId = vendor ? vendor._id : null;
+  } else if (role === 'referred') {
+    // "My referrals" — bookings this agent/vendor logged on someone else's
+    // behalf via createManualBooking above, regardless of which vendor they
+    // sent the customer to.
+    filter.referredBy = req.user._id;
   } else {
     filter.customerId = req.user._id;
   }
