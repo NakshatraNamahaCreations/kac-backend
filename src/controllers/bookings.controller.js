@@ -72,8 +72,6 @@ async function createBooking(req, res) {
   res.status(201).json(booking.toJSON());
 }
 
-const MANUAL_BOOKING_FEE_COINS = 250;
-
 const manualBookingSchema = z.object({
   vendorId: z.string(),
   serviceId: z.string(),
@@ -85,12 +83,12 @@ const manualBookingSchema = z.object({
 // A vendor refers a walk-in/phone-in customer to a DIFFERENT vendor for a
 // service they don't do themselves — e.g. a plumber sending a customer to
 // an AC repair vendor. The referring vendor picks the target vendor +
-// service, pays a flat lead fee from their own wallet immediately (whether
-// or not the target vendor ends up accepting — matches how a referral fee
-// works), and the booking lands on the TARGET vendor's Inbox as a normal
-// REQUESTED lead, same as if the customer had booked them directly through
-// the app (see createBooking above) — this does NOT auto-accept, since the
-// referring vendor isn't the one doing the job.
+// service, pays the SELECTED SERVICE'S OWN PRICE from their own wallet
+// immediately (whether or not the target vendor ends up accepting — matches
+// how a referral fee works), and the booking lands on the TARGET vendor's
+// Inbox as a normal REQUESTED lead, same as if the customer had booked them
+// directly through the app (see createBooking above) — this does NOT
+// auto-accept, since the referring vendor isn't the one doing the job.
 async function createManualBooking(req, res) {
   const body = manualBookingSchema.parse(req.body);
   const targetVendor = await VendorModel.findById(body.vendorId);
@@ -100,13 +98,20 @@ async function createManualBooking(req, res) {
   if (targetVendor.serviceQuota != null && targetVendor.servicesUsed >= targetVendor.serviceQuota) {
     fail(402, 'QUOTA_EXCEEDED', 'This vendor has used all completed jobs on their current plan.');
   }
+  if (service.pricePaise == null) {
+    fail(400, 'PRICE_NOT_SET', 'This service has no fixed price yet — ask the vendor to add one first.');
+  }
+  // Coins are ₹-denominated 1:1 (money.js: "1 coin = ₹1"), while services
+  // are priced in paise — same conversion AddServiceScreen.jsx uses in
+  // reverse (paiseFromRupees) when a vendor first sets a service's price.
+  const feeCoins = Math.round(service.pricePaise / 100);
 
   const agent = await requireOwnAgent(req.user._id);
-  if (agent.walletCoins < MANUAL_BOOKING_FEE_COINS) {
+  if (agent.walletCoins < feeCoins) {
     fail(
       402,
       'INSUFFICIENT_COINS',
-      `You need ₹${MANUAL_BOOKING_FEE_COINS} in your wallet to log a booking. Recharge and try again.`,
+      `You need ₹${feeCoins} in your wallet to log this booking. Recharge and try again.`,
     );
   }
 
@@ -123,12 +128,12 @@ async function createManualBooking(req, res) {
     await customer.save();
   }
 
-  agent.walletCoins -= MANUAL_BOOKING_FEE_COINS;
+  agent.walletCoins -= feeCoins;
   await agent.save();
   await LedgerEntryModel.create({
     ownerId: req.user._id,
     kind: 'debit',
-    coins: MANUAL_BOOKING_FEE_COINS,
+    coins: feeCoins,
     balance: agent.walletCoins,
     description: `Referral fee — ${customerName} to ${targetVendor.name}`,
   });
