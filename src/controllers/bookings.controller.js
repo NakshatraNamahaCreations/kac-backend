@@ -75,28 +75,30 @@ async function createBooking(req, res) {
 const MANUAL_BOOKING_FEE_COINS = 250;
 
 const manualBookingSchema = z.object({
+  vendorId: z.string(),
+  serviceId: z.string(),
   customerName: z.string().min(1),
   customerPhone: z.string().min(6),
-  serviceId: z.string(),
   notes: z.string().optional(),
 });
 
-// A vendor logs a job themselves — e.g. a walk-in or phone-in customer who
-// isn't using the app (AC service, plumbing call, etc). Unlike createBooking
-// above (customer-initiated, starts REQUESTED, vendor must accept), this is
-// vendor-initiated and lands straight on ACCEPTED — the vendor is both the
-// creator and the acceptor, so there's nothing left to accept. Same flat
-// lead fee as any other accepted job is charged to the vendor's own wallet
-// immediately (see wallet.controller.js's withdraw for the identical
-// debit+ledger shape).
+// A vendor refers a walk-in/phone-in customer to a DIFFERENT vendor for a
+// service they don't do themselves — e.g. a plumber sending a customer to
+// an AC repair vendor. The referring vendor picks the target vendor +
+// service, pays a flat lead fee from their own wallet immediately (whether
+// or not the target vendor ends up accepting — matches how a referral fee
+// works), and the booking lands on the TARGET vendor's Inbox as a normal
+// REQUESTED lead, same as if the customer had booked them directly through
+// the app (see createBooking above) — this does NOT auto-accept, since the
+// referring vendor isn't the one doing the job.
 async function createManualBooking(req, res) {
   const body = manualBookingSchema.parse(req.body);
-  const vendor = await VendorModel.findOne({ userId: req.user._id });
-  if (!vendor) fail(403, 'FORBIDDEN', 'Only a registered vendor can log a booking.');
-  const service = vendor.services.id(body.serviceId);
+  const targetVendor = await VendorModel.findById(body.vendorId);
+  if (!targetVendor) fail(404, 'VENDOR_NOT_FOUND', 'Vendor not found.');
+  const service = targetVendor.services.id(body.serviceId);
   if (!service) fail(404, 'SERVICE_NOT_FOUND', 'Service not found.');
-  if (vendor.serviceQuota != null && vendor.servicesUsed >= vendor.serviceQuota) {
-    fail(402, 'QUOTA_EXCEEDED', 'You have used all completed jobs on your current plan. Upgrade to accept more.');
+  if (targetVendor.serviceQuota != null && targetVendor.servicesUsed >= targetVendor.serviceQuota) {
+    fail(402, 'QUOTA_EXCEEDED', 'This vendor has used all completed jobs on their current plan.');
   }
 
   const agent = await requireOwnAgent(req.user._id);
@@ -128,23 +130,22 @@ async function createManualBooking(req, res) {
     kind: 'debit',
     coins: MANUAL_BOOKING_FEE_COINS,
     balance: agent.walletCoins,
-    description: `Booking fee — ${customerName}`,
+    description: `Referral fee — ${customerName} to ${targetVendor.name}`,
   });
 
   const booking = await BookingModel.create({
     customerId: customer._id,
     customerName,
     customerPhone,
-    vendorId: vendor._id,
-    vendorName: vendor.name,
+    vendorId: targetVendor._id,
+    vendorName: targetVendor.name,
     serviceId: String(service._id),
     serviceName: service.name,
     date: new Date().toISOString().slice(0, 10),
     slot: 'ASAP',
     notes: body.notes ?? null,
-    status: 'ACCEPTED',
+    status: 'REQUESTED',
   });
-  emitBookingStatus(booking);
 
   res.status(201).json(booking.toJSON());
 }
