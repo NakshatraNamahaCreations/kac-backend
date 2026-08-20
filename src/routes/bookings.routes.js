@@ -5,6 +5,7 @@ const {
   acceptBooking,
   completeBooking,
   createBooking,
+  createManualBooking,
   declineBooking,
   getBooking,
   listBookings,
@@ -15,6 +16,7 @@ const bookingsRouter = Router();
 bookingsRouter.use(requireAuth);
 
 bookingsRouter.post('/bookings', asyncHandler(createBooking));
+bookingsRouter.post('/bookings/manual', asyncHandler(createManualBooking));
 bookingsRouter.get('/bookings', asyncHandler(listBookings));
 bookingsRouter.get('/bookings/:id', asyncHandler(getBooking));
 bookingsRouter.patch('/bookings/:id/accept', asyncHandler(acceptBooking));

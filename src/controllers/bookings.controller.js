@@ -2,8 +2,13 @@ const { z } = require('zod');
 const { BookingModel } = require('../models/Booking');
 const { VendorModel } = require('../models/Vendor');
 const { ReviewModel } = require('../models/Review');
+const { UserModel } = require('../models/User');
+const { AgentModel } = require('../models/Agent');
+const { LedgerEntryModel } = require('../models/LedgerEntry');
 const { fail } = require('../lib/httpError');
 const { buildPage, parseCursor } = require('../lib/pagination');
+const { agentReferralCode } = require('../lib/referralCode');
+const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
 
 // Event name/payload must match what SocketProvider.jsx listens for
@@ -14,6 +19,19 @@ function emitBookingStatus(booking) {
     status: booking.status,
     vendorName: booking.vendorName,
   });
+}
+
+// Wallet balance lives on the Agent document regardless of role — a vendor
+// has no separate wallet field of their own (see wallet.controller.js's
+// requireOwnAgent, same shape, duplicated here rather than imported since
+// wallet.controller.js doesn't export it). Auto-provisioned on first touch
+// so a vendor who never opened Wallet doesn't 404 here.
+async function requireOwnAgent(userId) {
+  let agent = await AgentModel.findOne({ userId });
+  if (!agent) {
+    agent = await AgentModel.create({ userId, executiveCode: agentReferralCode(String(userId)), bankAccounts: [], walletCoins: 0 });
+  }
+  return agent;
 }
 
 const ACTIVE_STATUSES = ['REQUESTED', 'ACCEPTED', 'IN_PROGRESS'];
@@ -50,6 +68,83 @@ async function createBooking(req, res) {
     slot: body.slot ?? 'ASAP',
     notes: body.notes ?? null,
   });
+
+  res.status(201).json(booking.toJSON());
+}
+
+const MANUAL_BOOKING_FEE_COINS = 250;
+
+const manualBookingSchema = z.object({
+  customerName: z.string().min(1),
+  customerPhone: z.string().min(6),
+  serviceId: z.string(),
+  notes: z.string().optional(),
+});
+
+// A vendor logs a job themselves — e.g. a walk-in or phone-in customer who
+// isn't using the app (AC service, plumbing call, etc). Unlike createBooking
+// above (customer-initiated, starts REQUESTED, vendor must accept), this is
+// vendor-initiated and lands straight on ACCEPTED — the vendor is both the
+// creator and the acceptor, so there's nothing left to accept. Same flat
+// lead fee as any other accepted job is charged to the vendor's own wallet
+// immediately (see wallet.controller.js's withdraw for the identical
+// debit+ledger shape).
+async function createManualBooking(req, res) {
+  const body = manualBookingSchema.parse(req.body);
+  const vendor = await VendorModel.findOne({ userId: req.user._id });
+  if (!vendor) fail(403, 'FORBIDDEN', 'Only a registered vendor can log a booking.');
+  const service = vendor.services.id(body.serviceId);
+  if (!service) fail(404, 'SERVICE_NOT_FOUND', 'Service not found.');
+  if (vendor.serviceQuota != null && vendor.servicesUsed >= vendor.serviceQuota) {
+    fail(402, 'QUOTA_EXCEEDED', 'You have used all completed jobs on your current plan. Upgrade to accept more.');
+  }
+
+  const agent = await requireOwnAgent(req.user._id);
+  if (agent.walletCoins < MANUAL_BOOKING_FEE_COINS) {
+    fail(
+      402,
+      'INSUFFICIENT_COINS',
+      `You need ₹${MANUAL_BOOKING_FEE_COINS} in your wallet to log a booking. Recharge and try again.`,
+    );
+  }
+
+  // Find-or-create the customer's own account by phone — the same identity
+  // OTP login resolves to (see lib/phone.js), so if this customer ever opens
+  // the app with this number they see the booking in their own history.
+  const customerPhone = normalizePhone(body.customerPhone);
+  const customerName = body.customerName.trim();
+  let customer = await UserModel.findOne({ phone: customerPhone });
+  if (!customer) {
+    customer = await UserModel.create({ phone: customerPhone, name: customerName, roles: ['customer'] });
+  } else if (!customer.roles.includes('customer')) {
+    customer.roles.push('customer');
+    await customer.save();
+  }
+
+  agent.walletCoins -= MANUAL_BOOKING_FEE_COINS;
+  await agent.save();
+  await LedgerEntryModel.create({
+    ownerId: req.user._id,
+    kind: 'debit',
+    coins: MANUAL_BOOKING_FEE_COINS,
+    balance: agent.walletCoins,
+    description: `Booking fee — ${customerName}`,
+  });
+
+  const booking = await BookingModel.create({
+    customerId: customer._id,
+    customerName,
+    customerPhone,
+    vendorId: vendor._id,
+    vendorName: vendor.name,
+    serviceId: String(service._id),
+    serviceName: service.name,
+    date: new Date().toISOString().slice(0, 10),
+    slot: 'ASAP',
+    notes: body.notes ?? null,
+    status: 'ACCEPTED',
+  });
+  emitBookingStatus(booking);
 
   res.status(201).json(booking.toJSON());
 }
@@ -186,6 +281,7 @@ async function reviewBooking(req, res) {
 
 module.exports = {
   createBooking,
+  createManualBooking,
   listBookings,
   getBooking,
   acceptBooking,
