@@ -422,7 +422,22 @@ async function listBookings(req, res) {
     BookingModel.countDocuments(filter),
     BookingModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
   ]);
-  res.json(buildPage(bookings.map((b) => b.toJSON()), skip, limit, total));
+
+  // `vendorName` on Booking is the business name only, denormalized at
+  // booking time — the admin table also wants the vendor's own person name
+  // (Vendor.personName, set at registration), which isn't stored on the
+  // booking itself. A separate lookup (rather than .populate('vendorId'))
+  // keeps `vendorId` in the response a plain id string, not a populated
+  // sub-document, so nothing else reading this endpoint's shape breaks.
+  const vendorIds = [...new Set(bookings.map((b) => String(b.vendorId)))];
+  const vendors = await VendorModel.find({ _id: { $in: vendorIds } }, 'personName');
+  const personNameById = new Map(vendors.map((v) => [String(v._id), v.personName ?? null]));
+
+  const data = bookings.map((b) => ({
+    ...b.toJSON(),
+    vendorPersonName: personNameById.get(String(b.vendorId)) ?? null,
+  }));
+  res.json(buildPage(data, skip, limit, total));
 }
 
 module.exports = {
