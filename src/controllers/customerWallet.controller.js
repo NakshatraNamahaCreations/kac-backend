@@ -1,5 +1,7 @@
 const { z } = require('zod');
 const { LedgerEntryModel } = require('../models/LedgerEntry');
+const { UserModel } = require('../models/User');
+const { razorpayConfigured } = require('../lib/razorpay');
 const { fail } = require('../lib/httpError');
 const { buildPage, parseCursor } = require('../lib/pagination');
 
@@ -29,9 +31,32 @@ async function getWalletLedger(req, res) {
   res.json(buildPage(ledger.map((l) => l.toJSON()), skip, limit, total));
 }
 
+// Credits a verified Razorpay recharge (called from payments.controller.js's
+// verifyPayment once the signature checks out) — returns the new balance.
+async function creditCustomerCoins(userId, coins, description) {
+  const user = await UserModel.findById(userId);
+  user.walletCoins += coins;
+  await user.save();
+  await LedgerEntryModel.create({
+    ownerId: user._id,
+    kind: 'credit',
+    coins,
+    balance: user.walletCoins,
+    description,
+  });
+  return user.walletCoins;
+}
+
 const rechargeSchema = z.object({ coins: z.number().int().positive() });
 
+// Demo-only instant credit, used ONLY when no Razorpay keys are configured
+// (mock mode). With real keys the app recharges through
+// POST /payments/customer-wallet-order + /payments/verify, which credits
+// coins only after the payment signature verifies.
 async function recharge(req, res) {
+  if (razorpayConfigured) {
+    fail(400, 'USE_PAYMENT_FLOW', 'Wallet recharge requires a payment. Use the Razorpay checkout.');
+  }
   const { coins } = rechargeSchema.parse(req.body);
   const user = req.user;
   user.walletCoins += coins;
@@ -84,4 +109,11 @@ async function creditCustomerWelcomeBonus(user, coins, description) {
   });
 }
 
-module.exports = { getWallet, getWalletLedger, recharge, debit, creditCustomerWelcomeBonus };
+module.exports = {
+  getWallet,
+  getWalletLedger,
+  recharge,
+  debit,
+  creditCustomerWelcomeBonus,
+  creditCustomerCoins,
+};

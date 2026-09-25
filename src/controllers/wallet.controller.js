@@ -4,6 +4,7 @@ const { LedgerEntryModel } = require('../models/LedgerEntry');
 const { fail } = require('../lib/httpError');
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { agentReferralCode } = require('../lib/referralCode');
+const { razorpayConfigured } = require('../lib/razorpay');
 
 // Wallet balance lives on the Agent document regardless of role — agents AND
 // vendors both hit these endpoints (requireRole('agent', 'vendor')) since a
@@ -87,14 +88,34 @@ async function withdraw(req, res) {
   res.status(201).json({ withdrawalId: entry.withdrawalId, status: 'REQUESTED' });
 }
 
+// Credits a verified Razorpay wallet-recharge payment (called from
+// payments.controller.js's verifyPayment once the signature checks out) —
+// returns the new balance.
+async function creditWalletCoins(userId, coins, description) {
+  const agent = await requireOwnAgent(userId);
+  agent.walletCoins += coins;
+  await agent.save();
+  await LedgerEntryModel.create({
+    ownerId: userId,
+    kind: 'credit',
+    coins,
+    balance: agent.walletCoins,
+    description,
+  });
+  return agent.walletCoins;
+}
+
 const rechargeSchema = z.object({ coins: z.number().int().positive() });
 
-// TODO: credits coins immediately with no real payment collected — mirrors
-// the customer wallet's mock recharge (customerWallet.controller.js) for
-// now. Wire Razorpay here (mirroring payments.controller.js's vendor/agent
-// orders) before this ships to real users; per the app's own rule, payment
-// success must be confirmed by the backend, not just this instant credit.
+// Demo-only instant credit, used ONLY when no Razorpay keys are configured
+// (mock mode). With real keys the app recharges through
+// POST /payments/wallet-order + /payments/verify (payments.controller.js),
+// which credits the wallet only after the payment signature verifies — this
+// endpoint would otherwise let any signed-in user mint free coins.
 async function recharge(req, res) {
+  if (razorpayConfigured) {
+    fail(400, 'USE_PAYMENT_FLOW', 'Wallet recharge requires a payment. Use the Razorpay checkout.');
+  }
   const { coins } = rechargeSchema.parse(req.body);
   const agent = await requireOwnAgent(req.user._id);
   agent.walletCoins += coins;
@@ -117,4 +138,5 @@ module.exports = {
   addBankAccount,
   withdraw,
   recharge,
+  creditWalletCoins,
 };

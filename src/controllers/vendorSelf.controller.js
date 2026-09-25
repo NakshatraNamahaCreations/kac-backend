@@ -9,6 +9,7 @@ const { detectReferralKind, vendorReferralCode } = require('../lib/referralCode'
 const { servicesForCategories } = require('../lib/categoryServices');
 const { creditOnboardingForVendorPhone, creditReferralCodeForAgent } = require('./agent.controller');
 const { creditVendorReferrer } = require('./vendorReferral.controller');
+const { consumePaidPayment } = require('./payments.controller');
 
 const serviceSchema = z.object({
   name: z.string().min(1),
@@ -81,6 +82,12 @@ async function registerVendor(req, res) {
   if (body.plan && !planDoc) fail(400, 'INVALID_PLAN', 'Selected plan is no longer available.');
   const tier = planDoc ? planDoc.tier : 'BASIC';
   const serviceQuota = planDoc ? planDoc.serviceQuota : 10;
+
+  // The registration fee must have actually been paid (a verified Razorpay
+  // payment for this user + this plan) — see payments.controller.js. Runs
+  // after every validation above so a rejected request never burns the
+  // payment.
+  await consumePaidPayment(user._id, 'VENDOR_REGISTRATION', { plan: body.plan });
 
   vendor = await VendorModel.create({
     userId: user._id,
@@ -288,6 +295,10 @@ async function patchMyVendor(req, res) {
         `You can have at most ${MAX_SERVICE_ITEMS} services in total. Remove one before adding another.`,
       );
     }
+    // Adding a NEW category is the paid "add service" purchase — needs a
+    // verified ADDITIONAL_SERVICE payment (consumed once). Re-saving the
+    // existing category list stays free.
+    if (added.length > 0) await consumePaidPayment(req.user._id, 'VENDOR_ADDITIONAL_SERVICE');
     if (toAdd.length > 0) vendor.services.push(...toAdd);
     vendor.categories = categories;
   }

@@ -7,6 +7,7 @@ const { agentReferralCode, detectReferralKind } = require('../lib/referralCode')
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
+const { consumePaidPayment } = require('./payments.controller');
 
 // Lazy require — vendorReferral.controller.js requires agent.controller.js
 // for creditAgentCoins, so a top-level require here would form a cycle.
@@ -28,6 +29,13 @@ const registerSchema = z.object({
 async function registerAgent(req, res) {
   const body = registerSchema.parse(req.body);
   const user = req.user;
+
+  // First-time agent signup pays the membership fee — needs a verified
+  // AGENT_MEMBERSHIP payment (payments.controller.js). Re-submitting the form
+  // as an existing agent stays free.
+  if (!user.roles.includes('agent')) {
+    await consumePaidPayment(user._id, 'AGENT_MEMBERSHIP');
+  }
 
   let agent = await AgentModel.findOne({ userId: user._id });
   if (!agent) {
