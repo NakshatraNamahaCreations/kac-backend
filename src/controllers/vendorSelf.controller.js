@@ -6,7 +6,7 @@ const { BookingModel } = require('../models/Booking');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
 const { fail } = require('../lib/httpError');
 const { detectReferralKind, vendorReferralCode } = require('../lib/referralCode');
-const { servicesForCategories } = require('../lib/categoryServices');
+const { defaultServicesForCategories } = require('../lib/categoryServices');
 const { creditOnboardingForVendorPhone, creditReferralCodeForAgent } = require('./agent.controller');
 const { creditVendorReferrer } = require('./vendorReferral.controller');
 const { consumePaidPayment } = require('./payments.controller');
@@ -94,10 +94,12 @@ async function registerVendor(req, res) {
     name: body.businessName ?? user.name ?? 'Your business',
     primaryCategoryId: body.categories[0],
     categories: body.categories,
+    // "Your services & pricing" is optional — skipped means one unpriced
+    // ("On quote") service per category instead of invented prices.
     services:
       body.services && body.services.length > 0
         ? body.services
-        : servicesForCategories(body.categories),
+        : await defaultServicesForCategories(body.categories),
     area: body.area,
     photoUrl: body.photoKey ? `https://picsum.photos/seed/${body.photoKey}/400/400` : null,
     bio: 'New on GigKaar.',
@@ -282,12 +284,18 @@ async function patchMyVendor(req, res) {
   }
 
   // A paid "add service" purchase PATCHes the full updated categories list
-  // plus the vendor's own name+price for the new service(s). Falls back to
-  // the generic catalog only if the client didn't send any (older clients).
+  // plus the vendor's own name+price for the new service(s). Name+price is
+  // optional: if none were sent, each new category gets one unpriced
+  // ("On quote") service named after it.
   if (categories) {
     const existing = new Set(vendor.categories);
     const added = categories.filter((c) => !existing.has(c));
-    const toAdd = services && services.length > 0 ? services : added.length > 0 ? servicesForCategories(added) : [];
+    const toAdd =
+      services && services.length > 0
+        ? services
+        : added.length > 0
+          ? await defaultServicesForCategories(added)
+          : [];
     if (vendor.services.length + toAdd.length > MAX_SERVICE_ITEMS) {
       fail(
         400,

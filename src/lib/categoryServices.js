@@ -2,6 +2,8 @@
 // vendor who registers/adds a service against the real backend gets the
 // same starter service catalogue the mock demoed, instead of an empty
 // `services` array (which made every booking 404 with SERVICE_NOT_FOUND).
+const { CategoryModel } = require('../models/Category');
+
 const CATEGORY_SERVICES = {
   cat_plumber: [
     { name: 'Tap repair', pricePaise: 30000 },
@@ -45,4 +47,21 @@ function servicesForCategories(categoryIds) {
   return list;
 }
 
-module.exports = { CATEGORY_SERVICES, servicesForCategories };
+// Used when a vendor skips "Your services & pricing" (it's optional). One
+// service per category, named after the category, with NO price — the app
+// shows "On quote" for it. Bookings still need a service to point at (else
+// SERVICE_NOT_FOUND), but inventing a price like servicesForCategories does
+// would be wrong here: a made-up price would show to customers and, worse, is
+// what a referring vendor/agent gets charged (createManualBooking), so an
+// unpriced service is simply not referable until the vendor sets a price.
+async function defaultServicesForCategories(categoryIds) {
+  const cats = await CategoryModel.find({ _id: { $in: categoryIds } }, { name: 1 });
+  const nameById = new Map(cats.map((c) => [String(c._id), c.name]));
+  const list = categoryIds.map((cid) => ({
+    name: nameById.get(String(cid)) ?? 'General service',
+    pricePaise: null,
+  }));
+  return list.length > 0 ? list : [{ name: 'General service', pricePaise: null }];
+}
+
+module.exports = { CATEGORY_SERVICES, servicesForCategories, defaultServicesForCategories };
