@@ -17,6 +17,16 @@ function errorHandler(err, _req, res, _next) {
     res.status(400).json({ code: 'VALIDATION_ERROR', message: 'Invalid request.', fields });
     return;
   }
+  // body-parser (express.json) failures — surfaced as real 4xx instead of a
+  // generic 500, so e.g. an oversized photo upload tells the user why.
+  if (err && typeof err === 'object' && err.type === 'entity.too.large') {
+    res.status(413).json({ code: 'PAYLOAD_TOO_LARGE', message: 'That file is too large. Please use a smaller photo.' });
+    return;
+  }
+  if (err && typeof err === 'object' && err.type === 'entity.parse.failed') {
+    res.status(400).json({ code: 'INVALID_JSON', message: 'Invalid request body.' });
+    return;
+  }
   if (err && typeof err === 'object' && 'name' in err && err.name === 'ValidationError') {
     res.status(400).json({ code: 'VALIDATION_ERROR', message: err.message });
     return;

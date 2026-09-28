@@ -13,6 +13,12 @@ async function main() {
 
   const app = express();
   app.use(cors({ origin: env.corsOrigin }));
+  // Photo uploads arrive as base64 JSON, far past express.json's 100kb
+  // default. Only /uploads gets the big limit (and only for authed users,
+  // see uploads.routes.js) — this must come BEFORE the global parser, which
+  // skips a request whose body was already parsed. Everything else, incl.
+  // the unauthenticated OTP endpoints, keeps the small default.
+  app.use('/uploads', express.json({ limit: '9mb' }));
   app.use(express.json());
   app.use(morgan('dev'));
 

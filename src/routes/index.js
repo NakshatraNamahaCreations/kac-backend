@@ -9,6 +9,7 @@ const { walletRouter } = require('./wallet.routes');
 const { paymentsRouter } = require('./payments.routes');
 const { chatRouter } = require('./chat.routes');
 const { adminRouter } = require('./admin.routes');
+const { uploadsRouter } = require('./uploads.routes');
 
 const apiRouter = Router();
 
@@ -28,5 +29,6 @@ apiRouter.use(employeeRouter);
 apiRouter.use(walletRouter);
 apiRouter.use(paymentsRouter);
 apiRouter.use(chatRouter);
+apiRouter.use(uploadsRouter);
 
 module.exports = { apiRouter };

@@ -8,6 +8,7 @@ const { buildPage, parseCursor } = require('../lib/pagination');
 const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
 const { consumePaidPayment } = require('./payments.controller');
+const { assertOwnedUploads } = require('./uploads.controller');
 
 // Lazy require — vendorReferral.controller.js requires agent.controller.js
 // for creditAgentCoins, so a top-level require here would form a cycle.
@@ -147,6 +148,12 @@ const onboardSchema = z.object({
 async function createOnboarding(req, res) {
   const body = onboardSchema.parse(req.body);
   await requireOwnAgent(req.user._id);
+  await assertOwnedUploads(req.user._id, [
+    body.aadhaarPhotoKey,
+    body.panPhotoKey,
+    body.gstPhotoKey,
+    body.shopPhotoKey,
+  ]);
   // Must match the exact format creditOnboardingForVendorPhone later looks
   // this record up by (the vendor's own OTP-authenticated phone, which is
   // always +91 + 10 digits) — same defense-in-depth normalization as

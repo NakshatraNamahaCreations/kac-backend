@@ -10,6 +10,7 @@ const { defaultServicesForCategories } = require('../lib/categoryServices');
 const { creditOnboardingForVendorPhone, creditReferralCodeForAgent } = require('./agent.controller');
 const { creditVendorReferrer } = require('./vendorReferral.controller');
 const { consumePaidPayment } = require('./payments.controller');
+const { assertOwnedUploads } = require('./uploads.controller');
 
 const serviceSchema = z.object({
   name: z.string().min(1),
@@ -87,6 +88,7 @@ async function registerVendor(req, res) {
   // payment for this user + this plan) — see payments.controller.js. Runs
   // after every validation above so a rejected request never burns the
   // payment.
+  await assertOwnedUploads(user._id, [body.aadhaarPhotoKey, body.panPhotoKey, body.gstPhotoKey]);
   await consumePaidPayment(user._id, 'VENDOR_REGISTRATION', { plan: body.plan });
 
   vendor = await VendorModel.create({
@@ -255,6 +257,7 @@ async function patchMyVendor(req, res) {
     ...rest
   } = patchVendorSchema.parse(req.body);
   const vendor = await requireOwnVendor(req);
+  await assertOwnedUploads(req.user._id, [aadhaarPhotoKey, panPhotoKey, gstPhotoKey]);
 
   if (photoKey) {
     vendor.photoUrl = `https://picsum.photos/seed/${photoKey}/400/400`;
