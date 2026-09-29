@@ -12,6 +12,11 @@ async function main() {
   await connectDb();
 
   const app = express();
+  // Render terminates TLS in front of the app and forwards plain HTTP, only
+  // recording the real scheme in X-Forwarded-Proto. Without this, req.protocol
+  // always reads 'http' — which introVideo.controller.js relies on being
+  // correct to build the uploaded video's playable URL.
+  app.set('trust proxy', 1);
   app.use(cors({ origin: env.corsOrigin }));
   // Photo uploads arrive as base64 JSON, far past express.json's 100kb
   // default. Only /uploads gets the big limit (and only for authed users,

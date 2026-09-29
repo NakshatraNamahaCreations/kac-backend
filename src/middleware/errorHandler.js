@@ -1,4 +1,5 @@
 const { ZodError } = require('zod');
+const multer = require('multer');
 const { HttpError } = require('../lib/httpError');
 
 function notFoundHandler(req, res) {
@@ -25,6 +26,20 @@ function errorHandler(err, _req, res, _next) {
   }
   if (err && typeof err === 'object' && err.type === 'entity.parse.failed') {
     res.status(400).json({ code: 'INVALID_JSON', message: 'Invalid request body.' });
+    return;
+  }
+  // multer (intro-video file upload) — its own error type, separate from
+  // body-parser's above.
+  if (err instanceof multer.MulterError) {
+    const message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? 'That video is too large. Please use a smaller file or a video link instead.'
+        : 'Could not upload that file.';
+    res.status(413).json({ code: 'PAYLOAD_TOO_LARGE', message });
+    return;
+  }
+  if (err && typeof err === 'object' && err.code === 'UNSUPPORTED_FILE_TYPE') {
+    res.status(400).json({ code: 'UNSUPPORTED_FILE_TYPE', message: err.message });
     return;
   }
   if (err && typeof err === 'object' && 'name' in err && err.name === 'ValidationError') {

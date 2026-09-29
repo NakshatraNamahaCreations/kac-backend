@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const { listCategories } = require('../controllers/categories.controller');
 const { listVendorPlansPublic } = require('../controllers/vendorPlan.controller');
 const { getAgentPlanPublic } = require('../controllers/agentPlan.controller');
+const { getIntroVideoPublic, streamIntroVideoFile } = require('../controllers/introVideo.controller');
 const {
   createVendorReview,
   getVendor,
@@ -16,6 +17,8 @@ const catalogRouter = Router();
 catalogRouter.get('/categories', asyncHandler(listCategories));
 catalogRouter.get('/vendor-plans', asyncHandler(listVendorPlansPublic));
 catalogRouter.get('/agent-plan', asyncHandler(getAgentPlanPublic));
+catalogRouter.get('/intro-video', asyncHandler(getIntroVideoPublic));
+catalogRouter.get('/intro-video/file/:id', asyncHandler(streamIntroVideoFile));
 
 catalogRouter.get('/vendors', asyncHandler(listVendors));
 catalogRouter.get('/vendors/:id', asyncHandler(getVendor));

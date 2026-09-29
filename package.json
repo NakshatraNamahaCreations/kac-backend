@@ -17,6 +17,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.8.3",
     "morgan": "^1.10.0",
+    "multer": "^2.4.0",
     "razorpay": "^2.9.5",
     "socket.io": "^4.8.1",
     "zod": "^3.23.8"
