@@ -7,7 +7,10 @@ const { agentReferralCode, detectReferralKind } = require('../lib/referralCode')
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
-const { consumePaidPayment } = require('./payments.controller');
+const { consumePaidPayment, consumeOnboardingPayment } = require('./payments.controller');
+const { VendorModel } = require('../models/Vendor');
+const { VendorPlanModel } = require('../models/VendorPlan');
+const { fail } = require('../lib/httpError');
 const { assertOwnedUploads } = require('./uploads.controller');
 
 // Lazy require — vendorReferral.controller.js requires agent.controller.js
@@ -143,6 +146,9 @@ const onboardSchema = z.object({
   locationLng: z.number().optional(),
   placeTags: z.array(z.string()).optional(),
   serviceTags: z.array(z.string()).optional(),
+  // Vendor plan tier the agent collected the registration fee for — paid
+  // via POST /payments/onboarding-order before this call.
+  plan: z.string().min(1),
 });
 
 async function createOnboarding(req, res) {
@@ -160,12 +166,25 @@ async function createOnboarding(req, res) {
   // admin.controller.js's createUser, so a client-side format slip can't
   // silently strand the agent's cashback.
   const vendorPhone = normalizePhone(body.vendorPhone);
+  if (await VendorModel.exists({ phone: vendorPhone })) {
+    fail(409, 'ALREADY_VENDOR', 'This phone number is already registered as a vendor.');
+  }
+  const planDoc = await VendorPlanModel.findOne({ tier: body.plan });
+  if (!planDoc) fail(400, 'INVALID_PLAN', 'Selected plan is no longer available.');
+
+  // Last step before writing — every validation above runs first so a
+  // rejected request never burns the agent's payment.
+  const prepaidPaymentId = await consumeOnboardingPayment(req.user._id, vendorPhone, body.plan);
+
   const onboarding = await OnboardingModel.create({
     ...body,
     vendorPhone,
     agentId: req.user._id,
     status: 'PENDING',
     earningsCoins: 0,
+    plan: body.plan,
+    prepaid: true,
+    prepaidPaymentId,
   });
   res.status(201).json({ onboardingId: String(onboarding._id), status: 'PENDING' });
 }

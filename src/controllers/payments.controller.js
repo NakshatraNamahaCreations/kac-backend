@@ -4,6 +4,8 @@ const { fail } = require('../lib/httpError');
 const { VendorPlanModel } = require('../models/VendorPlan');
 const { AgentPlanModel, SINGLETON_ID: AGENT_PLAN_ID } = require('../models/AgentPlan');
 const { PaymentModel } = require('../models/Payment');
+const { VendorModel } = require('../models/Vendor');
+const { normalizePhone } = require('../lib/phone');
 const { creditWalletCoins } = require('./wallet.controller');
 const { creditCustomerCoins } = require('./customerWallet.controller');
 
@@ -76,6 +78,29 @@ async function createVendorOrder(req, res) {
     order,
     isAddService ? {} : { plan: body.plan ?? null },
   );
+  res.status(201).json(order);
+}
+
+const onboardingOrderSchema = z.object({
+  vendorPhone: z.string().min(6),
+  plan: z.string().min(1),
+});
+
+// Agent collects the vendor's registration fee in person and pays it here,
+// before submitting the onboarding. Priced exactly like the vendor's own
+// registration order (same admin-managed plan + 18% GST), so the vendor gets
+// the same plan whichever way it's paid.
+async function createOnboardingOrder(req, res) {
+  const body = onboardingOrderSchema.parse(req.body);
+  const vendorPhone = normalizePhone(body.vendorPhone);
+  // Never take money for a phone that's already a vendor — that fee could
+  // never be used.
+  if (await VendorModel.exists({ phone: vendorPhone })) {
+    fail(409, 'ALREADY_VENDOR', 'This phone number is already registered as a vendor.');
+  }
+  const amountPaise = await vendorInitialAmountPaise(body.plan);
+  const order = await createOrder(amountPaise, `onboard_${String(req.user._id)}`);
+  await recordOrder(req.user._id, 'VENDOR_ONBOARDING', order, { plan: body.plan, vendorPhone });
   res.status(201).json(order);
 }
 
@@ -178,8 +203,27 @@ async function consumePaidPayment(userId, purpose, { plan } = {}) {
   }
 }
 
+// createOnboarding's counterpart to consumePaidPayment: requires the agent's
+// PAID, unused VENDOR_ONBOARDING payment for exactly this vendor phone + plan
+// and marks it used. Returns the Payment id, or null in demo mode (no
+// Razorpay keys — nothing real to check, same as consumePaidPayment).
+async function consumeOnboardingPayment(agentUserId, vendorPhone, plan) {
+  if (!razorpayConfigured) return null;
+  const payment = await PaymentModel.findOneAndUpdate(
+    { userId: agentUserId, purpose: 'VENDOR_ONBOARDING', vendorPhone, plan, status: 'PAID', consumed: false },
+    { consumed: true },
+    { sort: { paidAt: 1 }, new: true },
+  );
+  if (!payment) {
+    fail(402, 'PAYMENT_REQUIRED', "Collect the vendor's registration fee before submitting.");
+  }
+  return payment._id;
+}
+
 module.exports = {
   createVendorOrder,
+  createOnboardingOrder,
+  consumeOnboardingPayment,
   createAgentOrder,
   createWalletOrder,
   createCustomerWalletOrder,

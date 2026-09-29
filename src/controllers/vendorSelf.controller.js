@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { VendorModel } = require('../models/Vendor');
 const { VendorPlanModel } = require('../models/VendorPlan');
+const { OnboardingModel } = require('../models/Onboarding');
 const { VendorReferralModel } = require('../models/VendorReferral');
 const { BookingModel } = require('../models/Booking');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
@@ -74,13 +75,25 @@ async function registerVendor(req, res) {
   let vendor = await VendorModel.findOne({ userId: user._id });
   if (vendor) fail(409, 'ALREADY_REGISTERED', 'You have already registered as a vendor.');
 
+  // An agent may have onboarded this phone in person and already paid the
+  // registration fee on the vendor's behalf (agent.controller.js's
+  // createOnboarding). Then the plan is the one the agent paid for — not
+  // whatever the client sends — and no second payment is asked for.
+  const prepaidOnboarding = await OnboardingModel.findOne({
+    vendorPhone: user.phone,
+    status: 'PENDING',
+    prepaid: true,
+    prepaidUsed: false,
+  }).sort({ createdAt: -1 });
+  const requestedPlan = prepaidOnboarding ? prepaidOnboarding.plan : body.plan;
+
   // Same admin-managed source payments.controller.js prices the order
   // against — was previously a third hardcoded `plan === 'PRO' ? null : 10`
   // copy here, independent of the other two and just as easy to drift.
-  let planDoc = body.plan
-    ? await VendorPlanModel.findOne({ tier: body.plan })
+  let planDoc = requestedPlan
+    ? await VendorPlanModel.findOne({ tier: requestedPlan })
     : await VendorPlanModel.findOne({}).sort({ sortOrder: 1 });
-  if (body.plan && !planDoc) fail(400, 'INVALID_PLAN', 'Selected plan is no longer available.');
+  if (requestedPlan && !planDoc) fail(400, 'INVALID_PLAN', 'Selected plan is no longer available.');
   const tier = planDoc ? planDoc.tier : 'BASIC';
   const serviceQuota = planDoc ? planDoc.serviceQuota : 10;
 
@@ -88,8 +101,31 @@ async function registerVendor(req, res) {
   // payment for this user + this plan) — see payments.controller.js. Runs
   // after every validation above so a rejected request never burns the
   // payment.
-  await assertOwnedUploads(user._id, [body.aadhaarPhotoKey, body.panPhotoKey, body.gstPhotoKey]);
-  await consumePaidPayment(user._id, 'VENDOR_REGISTRATION', { plan: body.plan });
+  // KYC photos the agent uploaded during onboarding belong to the agent, not
+  // this user — they were already ownership-checked against the agent then,
+  // so accept exactly those keys here; anything else must be the vendor's own.
+  const pendingOnboardings = await OnboardingModel.find({ vendorPhone: user.phone, status: 'PENDING' });
+  const agentPhotoKeys = new Set(
+    pendingOnboardings
+      .flatMap((o) => [o.aadhaarPhotoKey, o.panPhotoKey, o.gstPhotoKey])
+      .filter(Boolean),
+  );
+  await assertOwnedUploads(
+    user._id,
+    [body.aadhaarPhotoKey, body.panPhotoKey, body.gstPhotoKey].filter((k) => !agentPhotoKeys.has(k)),
+  );
+
+  if (prepaidOnboarding) {
+    // Atomic claim so two concurrent registrations can't both ride on one
+    // agent payment.
+    const claimed = await OnboardingModel.findOneAndUpdate(
+      { _id: prepaidOnboarding._id, prepaidUsed: false },
+      { prepaidUsed: true },
+    );
+    if (!claimed) await consumePaidPayment(user._id, 'VENDOR_REGISTRATION', { plan: requestedPlan });
+  } else {
+    await consumePaidPayment(user._id, 'VENDOR_REGISTRATION', { plan: body.plan });
+  }
 
   vendor = await VendorModel.create({
     userId: user._id,

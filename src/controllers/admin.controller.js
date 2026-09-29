@@ -18,6 +18,44 @@ function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// A vendor's code is the same hash the vendor app shows on its Profile /
+// Share screens (vendorReferralCode(vendor id)). Vendors registered before
+// the code was stored have none on the document — which also means
+// creditVendorReferrer (a lookup BY stored code) could never credit them.
+// Backfill it the first time the admin panel reads such a vendor.
+async function ensureVendorReferralCode(vendor) {
+  if (vendor.referralCode) return vendor.referralCode;
+  vendor.referralCode = vendorReferralCode(String(vendor._id));
+  await vendor.save();
+  return vendor.referralCode;
+}
+
+// Every referral code one person holds, one per role — a vendor who is also
+// a customer has both a GK-CU- and a GK-VND- code, and the admin's "All"
+// list used to show only the customer one. `users` is a page of User docs.
+async function referralCodesByUser(users) {
+  const ids = users.map((u) => u._id);
+  const [vendors, agents, employees] = await Promise.all([
+    VendorModel.find({ userId: { $in: ids } }),
+    AgentModel.find({ userId: { $in: ids } }, 'userId executiveCode'),
+    EmployeeModel.find({ userId: { $in: ids } }, 'userId referralCode'),
+  ]);
+  const byUser = new Map(users.map((u) => [
+    String(u._id),
+    [{ role: 'customer', code: u.referralCode || customerReferralCode(String(u._id)) }],
+  ]));
+  for (const v of vendors) {
+    byUser.get(String(v.userId))?.push({ role: 'vendor', code: await ensureVendorReferralCode(v) });
+  }
+  for (const a of agents) {
+    if (a.executiveCode) byUser.get(String(a.userId))?.push({ role: 'agent', code: a.executiveCode });
+  }
+  for (const e of employees) {
+    if (e.referralCode) byUser.get(String(e.userId))?.push({ role: 'employee', code: e.referralCode });
+  }
+  return byUser;
+}
+
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
 
 // DB-backed admin (Admin.js) is checked first — this is what POST
@@ -144,13 +182,14 @@ async function listUsers(req, res) {
       VendorModel.countDocuments(filter),
       VendorModel.find(filter).sort({ joinedAt: -1 }).skip(skip).limit(limit),
     ]);
-    const data = vendors.map((v) => ({
+    const codes = await Promise.all(vendors.map(ensureVendorReferralCode));
+    const data = vendors.map((v, i) => ({
       id: v.id,
       name: v.name,
       phone: v.phone,
       role: 'vendor',
       area: v.area,
-      referralCode: v.referralCode,
+      referralCode: codes[i],
       verificationStatus: v.verificationStatus,
       plan: v.plan,
       joinedAt: v.joinedAt,
@@ -212,6 +251,7 @@ async function listUsers(req, res) {
     UserModel.countDocuments(filter),
     UserModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
   ]);
+  const codesByUser = await referralCodesByUser(users);
   const data = users.map((u) => ({
     id: u.id,
     name: u.name,
@@ -219,7 +259,8 @@ async function listUsers(req, res) {
     role: u.roles.length ? u.roles.join(', ') : 'customer',
     roles: u.roles,
     area: u.area,
-    referralCode: u.referralCode,
+    referralCode: u.referralCode || customerReferralCode(String(u._id)),
+    referralCodes: codesByUser.get(String(u._id)) ?? [],
     walletCoins: u.walletCoins,
     joinedAt: u.createdAt,
   }));
@@ -237,6 +278,7 @@ async function getUserDetail(req, res) {
   if (role === 'vendor') {
     const vendor = await VendorModel.findById(id);
     if (!vendor) fail(404, 'NOT_FOUND', 'Vendor not found.');
+    await ensureVendorReferralCode(vendor);
     return res.json({ role: 'vendor', ...vendor.toJSON() });
   }
 
@@ -256,7 +298,13 @@ async function getUserDetail(req, res) {
 
   const user = await UserModel.findById(id).select('-pushTokens');
   if (!user) fail(404, 'NOT_FOUND', 'User not found.');
-  res.json({ role: 'customer', ...user.toJSON() });
+  const codes = (await referralCodesByUser([user])).get(String(user._id)) ?? [];
+  res.json({
+    role: 'customer',
+    ...user.toJSON(),
+    referralCode: user.referralCode || customerReferralCode(String(user._id)),
+    referralCodes: codes,
+  });
 }
 
 const updateVendorVerificationSchema = z.object({ verified: z.boolean() });

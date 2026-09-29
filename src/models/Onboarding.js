@@ -26,6 +26,13 @@ const onboardingSchema = new Schema(
     locationLng: { type: Number },
     placeTags: { type: [String], default: undefined },
     serviceTags: { type: [String], default: undefined },
+    // Registration fee the agent collected and paid at onboarding time (a
+    // VENDOR_ONBOARDING Payment). When set, the vendor's own registerVendor
+    // uses this plan and skips payment; prepaidUsed flips once it has.
+    plan: { type: String, default: null },
+    prepaid: { type: Boolean, default: false },
+    prepaidPaymentId: { type: Schema.Types.ObjectId, ref: 'Payment', default: null },
+    prepaidUsed: { type: Boolean, default: false },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );

@@ -99,6 +99,9 @@ async function verifyOtp(req, res) {
         establishedYear: onboarding.establishedYear,
         locationLat: onboarding.locationLat,
         locationLng: onboarding.locationLng,
+        // Set when the agent already collected + paid the registration fee
+        // — StepPayment.jsx then skips Razorpay for this plan.
+        prepaidPlan: onboarding.prepaid && !onboarding.prepaidUsed ? onboarding.plan : null,
       }
     : null;
 

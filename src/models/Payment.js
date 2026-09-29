@@ -3,6 +3,11 @@ const { applyIdTransform } = require('./plugins');
 
 const PAYMENT_PURPOSES = [
   'VENDOR_REGISTRATION',
+  // An agent paying a vendor's registration fee on their behalf during
+  // in-person onboarding (the vendor hands the agent the money). Bound to
+  // the vendor's phone + plan; consumed by createOnboarding, and the vendor's
+  // own later registerVendor then skips payment (see Onboarding.prepaid).
+  'VENDOR_ONBOARDING',
   'VENDOR_ADDITIONAL_SERVICE',
   'AGENT_MEMBERSHIP',
   'WALLET_RECHARGE',
@@ -26,6 +31,9 @@ const paymentSchema = new Schema(
     coins: { type: Number, default: null },
     // Vendor registration only — the plan tier this payment was made for.
     plan: { type: String, default: null },
+    // Agent-paid onboarding only — whose registration this pays for
+    // (normalized +91XXXXXXXXXX, same format OTP login stores).
+    vendorPhone: { type: String, default: null },
     status: { type: String, enum: ['CREATED', 'PAID'], default: 'CREATED', index: true },
     razorpayPaymentId: { type: String, default: null },
     paidAt: { type: Date, default: null },
