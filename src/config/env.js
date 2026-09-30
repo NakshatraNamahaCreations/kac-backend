@@ -32,6 +32,11 @@ const env = {
   razorpayKeyId: process.env.RAZORPAY_KEY_ID ?? '',
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET ?? '',
   devOtpCode: process.env.DEV_OTP_CODE ?? '123456',
+  // Image storage (lib/cloudinary.js). All three must be set; without them
+  // uploads fall back to MongoDB storage.
+  cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME ?? '',
+  cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? '',
+  cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? '',
   // Whether requestOtp echoes the real per-request code back in its
   // response (session.controller.js) — shown outside production by
   // default, same as before. SHOW_DEV_OTP=true opts a production deploy

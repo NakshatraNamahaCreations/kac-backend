@@ -2,6 +2,7 @@ const { z } = require('zod');
 const { VendorModel } = require('../models/Vendor');
 const { VendorPlanModel } = require('../models/VendorPlan');
 const { OnboardingModel } = require('../models/Onboarding');
+const { env } = require('../config/env');
 const { VendorReferralModel } = require('../models/VendorReferral');
 const { BookingModel } = require('../models/Booking');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
@@ -11,7 +12,7 @@ const { defaultServicesForCategories } = require('../lib/categoryServices');
 const { creditOnboardingForVendorPhone, creditReferralCodeForAgent } = require('./agent.controller');
 const { creditVendorReferrer } = require('./vendorReferral.controller');
 const { consumePaidPayment } = require('./payments.controller');
-const { assertOwnedUploads } = require('./uploads.controller');
+const { assertOwnedUploads, publicUrlForOwnedKey } = require('./uploads.controller');
 
 const serviceSchema = z.object({
   name: z.string().min(1),
@@ -127,6 +128,14 @@ async function registerVendor(req, res) {
     await consumePaidPayment(user._id, 'VENDOR_REGISTRATION', { plan: body.plan });
   }
 
+  // Cover photo: the vendor's own upload, else the shop photo their agent
+  // took during onboarding (owned by the agent). Real Cloudinary URLs only —
+  // no placeholder image.
+  const agentShop = pendingOnboardings.find((o) => o.shopPhotoKey);
+  const coverPhotoUrl =
+    (await publicUrlForOwnedKey(user._id, body.photoKey)) ??
+    (agentShop ? await publicUrlForOwnedKey(agentShop.agentId, agentShop.shopPhotoKey) : null);
+
   vendor = await VendorModel.create({
     userId: user._id,
     name: body.businessName ?? user.name ?? 'Your business',
@@ -139,7 +148,7 @@ async function registerVendor(req, res) {
         ? body.services
         : await defaultServicesForCategories(body.categories),
     area: body.area,
-    photoUrl: body.photoKey ? `https://picsum.photos/seed/${body.photoKey}/400/400` : null,
+    photoUrl: coverPhotoUrl,
     bio: 'New on GigKaar.',
     workingHours: body.hours,
     phone: user.phone,
@@ -247,7 +256,12 @@ const patchVendorSchema = z.object({
   bio: z.string().optional(),
   workingHours: z.string().optional(),
   whatsapp: z.string().nullable().optional(),
-  photos: z.array(z.string()).optional(),
+  // Gallery image URLs — uploaded via POST /uploads (kind 'gallery'), so
+  // https only; nothing like file:// from a phone can be saved.
+  photos: z.array(z.string().url().startsWith('https://')).max(10).optional(),
+  // Cover photo — PhotosScreen sends the first gallery image here. Was
+  // silently dropped before (not in this schema), so covers never saved.
+  photoUrl: z.string().url().startsWith('https://').nullable().optional(),
   photoCaptions: z.record(z.string()).optional(),
   serviceTags: z.array(z.string()).optional(),
   personName: z.string().optional(),
@@ -295,8 +309,25 @@ async function patchMyVendor(req, res) {
   const vendor = await requireOwnVendor(req);
   await assertOwnedUploads(req.user._id, [aadhaarPhotoKey, panPhotoKey, gstPhotoKey]);
 
+  // Gallery / cover images must be ones uploaded to our Cloudinary (or
+  // already on this vendor) — not any image URL off the internet.
+  const known = new Set([vendor.photoUrl, ...(vendor.photos ?? [])].filter(Boolean));
+  const isOurImage = (url) => known.has(url) || url.startsWith(`https://res.cloudinary.com/${env.cloudinaryCloudName}/`);
+  if (rest.photos && !rest.photos.every(isOurImage)) {
+    fail(400, 'INVALID_PHOTO', 'Please upload photos from the app.');
+  }
+  if (rest.photoUrl !== undefined) {
+    if (rest.photoUrl !== null && !isOurImage(rest.photoUrl)) {
+      fail(400, 'INVALID_PHOTO', 'Please upload photos from the app.');
+    }
+    vendor.photoUrl = rest.photoUrl;
+    delete rest.photoUrl;
+  }
+
   if (photoKey) {
-    vendor.photoUrl = `https://picsum.photos/seed/${photoKey}/400/400`;
+    const url = await publicUrlForOwnedKey(req.user._id, photoKey);
+    if (!url) fail(400, 'INVALID_UPLOAD', 'That photo is missing. Please upload it again.');
+    vendor.photoUrl = url;
   }
 
   if (bank) {

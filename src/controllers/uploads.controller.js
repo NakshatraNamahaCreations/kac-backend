@@ -1,12 +1,14 @@
 const { z } = require('zod');
 const { isValidObjectId } = require('mongoose');
-const { UploadModel, UPLOAD_KINDS } = require('../models/Upload');
+const { UploadModel, UPLOAD_KINDS, PRIVATE_KINDS } = require('../models/Upload');
 const { VendorModel } = require('../models/Vendor');
 const { fail } = require('../lib/httpError');
+const { cloudinaryConfigured, uploadImageBuffer, fetchPrivateImage } = require('../lib/cloudinary');
 
 const MAX_BYTES = 6 * 1024 * 1024;
-// Abuse guard: a KYC flow needs a handful of images per person, not hundreds.
-const MAX_UPLOADS_PER_USER = 100;
+// Abuse guard: a KYC flow + a gallery needs a handful of images per person,
+// not hundreds.
+const MAX_UPLOADS_PER_USER = 150;
 
 const uploadSchema = z.object({
   kind: z.enum(UPLOAD_KINDS),
@@ -35,40 +37,103 @@ function sniffImageType(buf) {
   return null;
 }
 
-// POST /uploads  { kind, dataBase64 } -> 201 { key, kind, contentType, size }
-async function createUpload(req, res) {
-  const body = uploadSchema.parse(req.body);
+function decodeImage(dataBase64) {
   // Tolerate a data-URL prefix ("data:image/jpeg;base64,....").
-  const b64 = body.dataBase64.replace(/^data:[^;]+;base64,/, '');
-  const data = Buffer.from(b64, 'base64');
+  const data = Buffer.from(dataBase64.replace(/^data:[^;]+;base64,/, ''), 'base64');
   if (data.length === 0) fail(400, 'INVALID_IMAGE', 'That file is empty.');
   if (data.length > MAX_BYTES) {
     fail(413, 'IMAGE_TOO_LARGE', 'That photo is too large. Please use one under 6 MB.');
   }
   const contentType = sniffImageType(data);
   if (!contentType) fail(400, 'INVALID_IMAGE', 'Only JPEG, PNG or WebP photos can be uploaded.');
+  return { data, contentType };
+}
+
+// Stores the image (Cloudinary, or MongoDB when Cloudinary isn't configured)
+// and creates the Upload row. Shared by the app and the admin panel.
+async function storeImage({ kind, data, contentType, ownerId, uploadedByAdmin = false }) {
+  const isPrivate = PRIVATE_KINDS.includes(kind);
+  if (!cloudinaryConfigured) {
+    return UploadModel.create({ ownerId, uploadedByAdmin, kind, contentType, size: data.length, data });
+  }
+  let stored;
+  try {
+    stored = await uploadImageBuffer(data, { folder: isPrivate ? 'kyc' : kind, isPrivate });
+  } catch {
+    fail(502, 'UPLOAD_FAILED', "Couldn't save that photo right now. Please try again.");
+  }
+  return UploadModel.create({
+    ownerId,
+    uploadedByAdmin,
+    kind,
+    contentType,
+    size: stored.bytes ?? data.length,
+    cloudinaryPublicId: stored.publicId,
+    cloudinaryFormat: stored.format,
+    cloudinaryType: stored.deliveryType,
+    url: stored.url,
+  });
+}
+
+function uploadResponse(doc) {
+  return {
+    key: String(doc._id),
+    kind: doc.kind,
+    contentType: doc.contentType,
+    size: doc.size,
+    // Public kinds only — KYC documents never get a shareable URL.
+    url: doc.url ?? null,
+  };
+}
+
+// POST /uploads  { kind, dataBase64 } -> 201 { key, kind, contentType, size, url }
+async function createUpload(req, res) {
+  const body = uploadSchema.parse(req.body);
+  const { data, contentType } = decodeImage(body.dataBase64);
 
   const count = await UploadModel.countDocuments({ ownerId: req.user._id });
   if (count >= MAX_UPLOADS_PER_USER) {
     fail(429, 'UPLOAD_LIMIT', 'Upload limit reached. Please contact support.');
   }
 
-  const doc = await UploadModel.create({
-    ownerId: req.user._id,
-    kind: body.kind,
-    contentType,
-    size: data.length,
-    data,
-  });
-  res.status(201).json({ key: String(doc._id), kind: doc.kind, contentType, size: data.length });
+  const doc = await storeImage({ kind: body.kind, data, contentType, ownerId: req.user._id });
+  res.status(201).json(uploadResponse(doc));
 }
 
-function sendImage(res, doc) {
-  res.set('Content-Type', doc.contentType);
-  res.set('Content-Length', String(doc.size));
+// POST /admin/uploads { kind: 'category', dataBase64 } — admin panel images.
+const adminUploadSchema = z.object({
+  kind: z.enum(['category']),
+  dataBase64: z.string().min(100),
+});
+
+async function createUploadAdmin(req, res) {
+  const body = adminUploadSchema.parse(req.body);
+  const { data, contentType } = decodeImage(body.dataBase64);
+  const doc = await storeImage({ kind: body.kind, data, contentType, ownerId: null, uploadedByAdmin: true });
+  res.status(201).json(uploadResponse(doc));
+}
+
+async function sendImage(res, doc) {
+  // Public Cloudinary image — let the CDN serve it.
+  if (doc.url) {
+    res.redirect(302, doc.url);
+    return;
+  }
+  let buffer = doc.data;
+  let contentType = doc.contentType;
+  if (!buffer && doc.cloudinaryPublicId) {
+    try {
+      ({ buffer, contentType } = await fetchPrivateImage(doc.cloudinaryPublicId, doc.cloudinaryFormat));
+    } catch {
+      fail(502, 'IMAGE_UNAVAILABLE', "Couldn't load that image right now. Please try again.");
+    }
+  }
+  if (!buffer) fail(404, 'NOT_FOUND', 'Image not found.');
+  res.set('Content-Type', contentType);
+  res.set('Content-Length', String(buffer.length));
   // Private documents: the app may cache them on-device, shared caches must not.
   res.set('Cache-Control', 'private, max-age=86400');
-  res.send(doc.data);
+  res.send(buffer);
 }
 
 // GET /uploads/:id — the uploader, or a vendor whose registered KYC/profile
@@ -80,7 +145,8 @@ async function getUpload(req, res) {
   const doc = await UploadModel.findById(id);
   if (!doc) fail(404, 'NOT_FOUND', 'Image not found.');
 
-  let allowed = String(doc.ownerId) === String(req.user._id);
+  // Public images are public by definition.
+  let allowed = !!doc.url || String(doc.ownerId) === String(req.user._id);
   if (!allowed) {
     allowed = !!(await VendorModel.exists({
       userId: req.user._id,
@@ -92,7 +158,7 @@ async function getUpload(req, res) {
     }));
   }
   if (!allowed) fail(404, 'NOT_FOUND', 'Image not found.');
-  sendImage(res, doc);
+  await sendImage(res, doc);
 }
 
 // GET /admin/uploads/:id — admin panel, for reviewing a vendor's KYC.
@@ -101,7 +167,7 @@ async function getUploadAdmin(req, res) {
   if (!isValidObjectId(id)) fail(404, 'NOT_FOUND', 'Image not found.');
   const doc = await UploadModel.findById(id);
   if (!doc) fail(404, 'NOT_FOUND', 'Image not found.');
-  sendImage(res, doc);
+  await sendImage(res, doc);
 }
 
 // A submitted *PhotoKey must be an upload this same user made. Without the
@@ -120,4 +186,21 @@ async function assertOwnedUploads(ownerId, keys) {
   }
 }
 
-module.exports = { createUpload, getUpload, getUploadAdmin, assertOwnedUploads };
+// Public display URL for an upload key the given user owns — used where a
+// record stores a URL rather than a key (vendor cover photo, avatars).
+// Null for anything else: someone else's upload, a private KYC image, or a
+// legacy MongoDB-stored image (no public URL exists for those).
+async function publicUrlForOwnedKey(ownerId, key) {
+  if (!key || !isValidObjectId(key)) return null;
+  const doc = await UploadModel.findOne({ _id: key, ownerId }, 'url');
+  return doc?.url ?? null;
+}
+
+module.exports = {
+  createUpload,
+  createUploadAdmin,
+  getUpload,
+  getUploadAdmin,
+  assertOwnedUploads,
+  publicUrlForOwnedKey,
+};

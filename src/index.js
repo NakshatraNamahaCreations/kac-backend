@@ -24,6 +24,8 @@ async function main() {
   // skips a request whose body was already parsed. Everything else, incl.
   // the unauthenticated OTP endpoints, keeps the small default.
   app.use('/uploads', express.json({ limit: '9mb' }));
+  // Admin panel's category-image upload — same base64 shape, admin-only.
+  app.use('/admin/uploads', express.json({ limit: '9mb' }));
   app.use(express.json());
   app.use(morgan('dev'));
 

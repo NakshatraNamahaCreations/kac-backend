@@ -12,6 +12,7 @@ const { detectReferralKind, customerReferralCode } = require('../lib/referralCod
 const { creditCustomerWelcomeBonus } = require('./customerWallet.controller');
 const { creditCustomerReferrer } = require('./customerReferral.controller');
 const { creditVendorReferrer } = require('./vendorReferral.controller');
+const { publicUrlForOwnedKey } = require('./uploads.controller');
 const { env } = require('../config/env');
 
 const CUSTOMER_REFERRAL_REWARD_COINS = 99;
@@ -160,11 +161,22 @@ const patchMeSchema = z.object({
   language: z.string().optional(),
   area: z.string().optional(),
   address: z.string().optional(),
+  // Profile photo: the key of an image this user uploaded (POST /uploads,
+  // kind 'profile'), or null to remove it. Stored as its Cloudinary URL.
+  avatarKey: z.string().nullable().optional(),
 });
 
 async function patchMe(req, res) {
-  const patch = patchMeSchema.parse(req.body);
+  const { avatarKey, ...patch } = patchMeSchema.parse(req.body);
   const user = req.user;
+
+  if (avatarKey === null) {
+    user.avatarUrl = null;
+  } else if (avatarKey !== undefined) {
+    const url = await publicUrlForOwnedKey(user._id, avatarKey);
+    if (!url) fail(400, 'INVALID_UPLOAD', 'That photo is missing. Please upload it again.');
+    user.avatarUrl = url;
+  }
 
   Object.assign(user, patch);
   await user.save();
