@@ -5,6 +5,8 @@ const { VendorModel } = require('../models/Vendor');
 const { AgentModel, effectiveAgentStatus } = require('../models/Agent');
 const { EmployeeModel } = require('../models/Employee');
 const { BookingModel } = require('../models/Booking');
+const { OnboardingModel } = require('../models/Onboarding');
+const { CategoryModel } = require('../models/Category');
 const { AdminModel } = require('../models/Admin');
 const { env } = require('../config/env');
 const { signAdminToken } = require('../lib/jwt');
@@ -281,13 +283,24 @@ async function getUserDetail(req, res) {
     const vendor = await VendorModel.findById(id);
     if (!vendor) fail(404, 'NOT_FOUND', 'Vendor not found.');
     await ensureVendorReferralCode(vendor);
-    return res.json({ role: 'vendor', ...vendor.toJSON() });
+    // Category ids -> names for display.
+    const cats = await CategoryModel.find({ _id: { $in: vendor.categories ?? [] } }, 'name');
+    const nameById = new Map(cats.map((c) => [String(c._id), c.name]));
+    return res.json({
+      role: 'vendor',
+      ...vendor.toJSON(),
+      categoryNames: (vendor.categories ?? []).map((c) => nameById.get(String(c)) ?? c),
+    });
   }
 
   if (role === 'agent') {
     const agent = await AgentModel.findById(id).populate('userId', 'name phone area address');
     if (!agent) fail(404, 'NOT_FOUND', 'Agent not found.');
     const { userId, ...rest } = agent.toJSON();
+    // Every vendor this agent onboarded in person, with what they collected
+    // (KYC photo keys are viewable through GET /admin/uploads/:id). The full
+    // Aadhaar number is stored on Onboarding; only the last 4 go out.
+    const onboardings = await OnboardingModel.find({ agentId: agent.userId }).sort({ createdAt: -1 }).limit(100);
     return res.json({
       role: 'agent',
       ...rest,
@@ -295,7 +308,30 @@ async function getUserDetail(req, res) {
       verified: effectiveAgentStatus(agent) === 'ACTIVE',
       name: userId?.name,
       phone: userId?.phone,
+      area: rest.area ?? userId?.area,
       address: userId?.address,
+      onboardings: onboardings.map((o) => ({
+        id: String(o._id),
+        createdAt: o.createdAt,
+        status: o.status,
+        plan: o.plan,
+        prepaid: o.prepaid,
+        vendorName: o.vendorName,
+        businessName: o.businessName ?? null,
+        ownerName: o.ownerName ?? null,
+        vendorPhone: o.vendorPhone,
+        area: o.area ?? null,
+        aadhaarNumberMasked: o.aadhaarNumber ? `XXXX XXXX ${String(o.aadhaarNumber).slice(-4)}` : null,
+        aadhaarName: o.aadhaarName ?? null,
+        panNumber: o.panNumber ?? null,
+        gstNumber: o.gstNumber ?? null,
+        establishedYear: o.establishedYear ?? null,
+        aadhaarPhotoKey: o.aadhaarPhotoKey ?? null,
+        panPhotoKey: o.panPhotoKey ?? null,
+        gstPhotoKey: o.gstPhotoKey ?? null,
+        shopPhotoKey: o.shopPhotoKey ?? null,
+        earningsCoins: o.earningsCoins,
+      })),
     });
   }
 

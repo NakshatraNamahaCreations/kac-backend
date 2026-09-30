@@ -7,12 +7,15 @@ const {
   getAgentDashboard,
   listOnboardings,
   registerAgent,
+  updateAgentKyc,
 } = require('../controllers/agent.controller');
 
 const agentRouter = Router();
 agentRouter.use(requireAuth);
 
 agentRouter.post('/agent/register', asyncHandler(registerAgent));
+// Own KYC documents — open to agents still waiting for approval.
+agentRouter.patch('/agent/kyc', requireRole('agent'), asyncHandler(updateAgentKyc));
 agentRouter.get('/agent/dashboard', requireRole('agent'), asyncHandler(getAgentDashboard));
 // Onboarding vendors needs an admin-approved agent (requireActiveAgent);
 // the dashboard stays open so the app can read verificationStatus.

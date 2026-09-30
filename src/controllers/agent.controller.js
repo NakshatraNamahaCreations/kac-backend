@@ -21,6 +21,18 @@ function creditVendorReferrer(...args) {
 
 const bankSchema = z.object({ accountNumber: z.string(), ifsc: z.string(), accountHolder: z.string() });
 
+// The agent's own KYC — sent with registration (AgentRegisterAddressScreen)
+// and on its own from Profile > KYC documents (PATCH /agent/kyc).
+const kycFields = {
+  aadhaarNumber: z.string().optional(),
+  aadhaarName: z.string().optional(),
+  aadhaarPhotoKey: z.string().optional(),
+  panNumber: z.string().optional(),
+  panPhotoKey: z.string().optional(),
+  gstNumber: z.string().optional(),
+  gstPhotoKey: z.string().optional(),
+};
+
 const registerSchema = z.object({
   name: z.string(),
   area: z.string(),
@@ -28,11 +40,37 @@ const registerSchema = z.object({
   address: z.string().optional(),
   referralCode: z.string().optional(),
   membershipOrderId: z.string().optional(),
+  ...kycFields,
 });
+
+// Writes whichever KYC fields were sent onto agent.kyc (doesn't save).
+// Photo keys must be this user's own uploads. Empty strings are ignored.
+async function applyAgentKyc(agent, userId, body) {
+  await assertOwnedUploads(userId, [body.aadhaarPhotoKey, body.panPhotoKey, body.gstPhotoKey]);
+  const kyc = agent.kyc ?? {};
+  const set = (field, value) => {
+    if (value !== undefined && value !== '') kyc[field] = value;
+  };
+  if (body.aadhaarNumber) {
+    const digits = body.aadhaarNumber.replace(/\D+/g, '');
+    kyc.aadhaarNumberMasked = `XXXX XXXX ${digits.slice(-4)}`;
+  }
+  set('aadhaarName', body.aadhaarName?.trim());
+  set('aadhaarPhotoKey', body.aadhaarPhotoKey);
+  set('panNumber', body.panNumber?.trim().toUpperCase());
+  set('panPhotoKey', body.panPhotoKey);
+  set('gstNumber', body.gstNumber?.trim().toUpperCase());
+  set('gstPhotoKey', body.gstPhotoKey);
+  agent.kyc = kyc;
+}
 
 async function registerAgent(req, res) {
   const body = registerSchema.parse(req.body);
   const user = req.user;
+
+  // Validate KYC photo keys BEFORE consuming the membership payment, so a bad
+  // photo can't burn the fee (applyAgentKyc re-checks later; cheap).
+  await assertOwnedUploads(user._id, [body.aadhaarPhotoKey, body.panPhotoKey, body.gstPhotoKey]);
 
   // First-time agent signup pays the membership fee — needs a verified
   // AGENT_MEMBERSHIP payment (payments.controller.js). Re-submitting the form
@@ -59,6 +97,10 @@ async function registerAgent(req, res) {
     agent.verificationStatus = 'PENDING_VERIFICATION';
     agent.verified = false;
   }
+
+  // Aadhaar / PAN / GST — used to be dropped here (not in the schema), so
+  // agent documents never reached the server or the admin panel.
+  await applyAgentKyc(agent, user._id, body);
 
   const digits = body.bank.accountNumber.replace(/\D+/g, '');
   const ifsc = body.bank.ifsc.toUpperCase();
@@ -101,6 +143,18 @@ async function registerAgent(req, res) {
   }
 
   res.status(201).json({ executiveCode: agent.executiveCode });
+}
+
+// PATCH /agent/kyc — Profile > KYC documents. Open to agents still waiting
+// for approval, so they can fix documents the admin flagged.
+const kycSchema = z.object(kycFields);
+
+async function updateAgentKyc(req, res) {
+  const body = kycSchema.parse(req.body);
+  const agent = await requireOwnAgent(req.user._id);
+  await applyAgentKyc(agent, req.user._id, body);
+  await agent.save();
+  res.json({ kyc: agent.toJSON().kyc });
 }
 
 async function requireOwnAgent(userId) {
@@ -310,6 +364,7 @@ async function creditReferralCodeForAgent(referralCode, referredName, referredPh
 
 module.exports = {
   registerAgent,
+  updateAgentKyc,
   requireActiveAgent,
   getAgentDashboard,
   createOnboarding,

@@ -30,6 +30,18 @@ const agentSchema = new Schema(
       default: null,
     },
     verified: { type: Boolean, default: false },
+    // The agent's own KYC (registration + Profile > KYC documents). Photo
+    // keys point at private Upload rows (Cloudinary `authenticated`); the
+    // Aadhaar number is stored masked only, same as Vendor.kyc.
+    kyc: {
+      aadhaarNumberMasked: { type: String, default: null },
+      aadhaarName: { type: String, default: null },
+      aadhaarPhotoKey: { type: String, default: null },
+      panNumber: { type: String, default: null },
+      panPhotoKey: { type: String, default: null },
+      gstNumber: { type: String, default: null },
+      gstPhotoKey: { type: String, default: null },
+    },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );

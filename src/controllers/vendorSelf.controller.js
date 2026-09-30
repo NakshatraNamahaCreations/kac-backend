@@ -106,6 +106,26 @@ async function registerVendor(req, res) {
   // this user — they were already ownership-checked against the agent then,
   // so accept exactly those keys here; anything else must be the vendor's own.
   const pendingOnboardings = await OnboardingModel.find({ vendorPhone: user.phone, status: 'PENDING' });
+
+  // Fill KYC gaps so nothing collected at registration is lost:
+  //  - app builds before the StepAddress fix never sent aadhaarPhotoKey,
+  //    but did send the same key as idDocKey;
+  //  - for an agent-onboarded vendor, whatever the agent collected in person.
+  const onboarded = pendingOnboardings[0];
+  const fill = (field, fallback) => {
+    if (!body[field] && fallback) body[field] = fallback;
+  };
+  fill('aadhaarPhotoKey', body.idDocKey);
+  fill('aadhaarPhotoKey', onboarded?.aadhaarPhotoKey);
+  fill('aadhaarNumber', onboarded?.aadhaarNumber);
+  fill('aadhaarName', onboarded?.aadhaarName);
+  fill('panNumber', onboarded?.panNumber);
+  fill('panPhotoKey', onboarded?.panPhotoKey);
+  fill('gstNumber', onboarded?.gstNumber);
+  fill('gstPhotoKey', onboarded?.gstPhotoKey);
+  fill('ownerName', onboarded?.ownerName);
+  fill('establishedYear', onboarded?.establishedYear);
+
   const agentPhotoKeys = new Set(
     pendingOnboardings
       .flatMap((o) => [o.aadhaarPhotoKey, o.panPhotoKey, o.gstPhotoKey])
