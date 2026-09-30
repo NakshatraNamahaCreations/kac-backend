@@ -22,8 +22,8 @@ async function requireOwnAgent(userId) {
 async function getWallet(req, res) {
   const agent = await requireOwnAgent(req.user._id);
   const [total, ledger] = await Promise.all([
-    LedgerEntryModel.countDocuments({ ownerId: req.user._id }),
-    LedgerEntryModel.find({ ownerId: req.user._id }).sort({ createdAt: -1 }).limit(10),
+    LedgerEntryModel.countDocuments({ ownerId: req.user._id, pool: { $ne: 'customer' } }),
+    LedgerEntryModel.find({ ownerId: req.user._id, pool: { $ne: 'customer' } }).sort({ createdAt: -1 }).limit(10),
   ]);
   res.json({
     wallet: { coins: agent.walletCoins, bankAccounts: agent.bankAccounts.map((b) => b.toJSON()) },
@@ -35,8 +35,8 @@ async function getWalletLedger(req, res) {
   const skip = parseCursor(typeof req.query.cursor === 'string' ? req.query.cursor : undefined);
   const limit = 10;
   const [total, ledger] = await Promise.all([
-    LedgerEntryModel.countDocuments({ ownerId: req.user._id }),
-    LedgerEntryModel.find({ ownerId: req.user._id }).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    LedgerEntryModel.countDocuments({ ownerId: req.user._id, pool: { $ne: 'customer' } }),
+    LedgerEntryModel.find({ ownerId: req.user._id, pool: { $ne: 'customer' } }).sort({ createdAt: -1 }).skip(skip).limit(limit),
   ]);
   res.json(buildPage(ledger.map((l) => l.toJSON()), skip, limit, total));
 }
@@ -76,6 +76,7 @@ async function withdraw(req, res) {
   await agent.save();
 
   const entry = await LedgerEntryModel.create({
+    pool: 'agent',
     ownerId: req.user._id,
     kind: 'debit',
     coins: body.amountCoins,
@@ -96,6 +97,7 @@ async function creditWalletCoins(userId, coins, description) {
   agent.walletCoins += coins;
   await agent.save();
   await LedgerEntryModel.create({
+    pool: 'agent',
     ownerId: userId,
     kind: 'credit',
     coins,
@@ -122,6 +124,7 @@ async function recharge(req, res) {
   await agent.save();
 
   await LedgerEntryModel.create({
+    pool: 'agent',
     ownerId: req.user._id,
     kind: 'credit',
     coins,

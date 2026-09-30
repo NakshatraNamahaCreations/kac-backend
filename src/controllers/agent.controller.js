@@ -326,6 +326,7 @@ async function creditAgentCoins(agentUserId, reason, name, onboardingId, amount)
   await agent.save();
 
   await LedgerEntryModel.create({
+    pool: 'agent',
     ownerId: agentUserId,
     kind: 'credit',
     coins: amount,

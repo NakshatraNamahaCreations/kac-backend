@@ -131,6 +131,7 @@ async function createManualBooking(req, res) {
   agent.walletCoins -= feeCoins;
   await agent.save();
   await LedgerEntryModel.create({
+    pool: 'agent',
     ownerId: req.user._id,
     kind: 'debit',
     coins: feeCoins,

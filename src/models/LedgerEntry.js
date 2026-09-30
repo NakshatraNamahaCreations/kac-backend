@@ -10,6 +10,12 @@ const ledgerEntrySchema = new Schema(
     description: { type: String, required: true },
     onboardingId: { type: Schema.Types.ObjectId, ref: 'Onboarding', default: null },
     withdrawalId: { type: String, default: null },
+    // Which wallet this entry belongs to — a person can hold both:
+    //   'customer' — User.walletCoins (customerWallet.controller.js)
+    //   'agent'    — the vendor / agent wallet, Agent.walletCoins
+    //                (wallet.controller.js, agent.controller.js, bookings)
+    // null on entries written before this field existed.
+    pool: { type: String, enum: ['customer', 'agent', null], default: null, index: true },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );

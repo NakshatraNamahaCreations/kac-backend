@@ -12,8 +12,8 @@ const { buildPage, parseCursor } = require('../lib/pagination');
 
 async function getWallet(req, res) {
   const [total, ledger] = await Promise.all([
-    LedgerEntryModel.countDocuments({ ownerId: req.user._id }),
-    LedgerEntryModel.find({ ownerId: req.user._id }).sort({ createdAt: -1 }).limit(10),
+    LedgerEntryModel.countDocuments({ ownerId: req.user._id, pool: { $ne: 'agent' } }),
+    LedgerEntryModel.find({ ownerId: req.user._id, pool: { $ne: 'agent' } }).sort({ createdAt: -1 }).limit(10),
   ]);
   res.json({
     wallet: { coins: req.user.walletCoins },
@@ -25,8 +25,8 @@ async function getWalletLedger(req, res) {
   const skip = parseCursor(typeof req.query.cursor === 'string' ? req.query.cursor : undefined);
   const limit = 10;
   const [total, ledger] = await Promise.all([
-    LedgerEntryModel.countDocuments({ ownerId: req.user._id }),
-    LedgerEntryModel.find({ ownerId: req.user._id }).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    LedgerEntryModel.countDocuments({ ownerId: req.user._id, pool: { $ne: 'agent' } }),
+    LedgerEntryModel.find({ ownerId: req.user._id, pool: { $ne: 'agent' } }).sort({ createdAt: -1 }).skip(skip).limit(limit),
   ]);
   res.json(buildPage(ledger.map((l) => l.toJSON()), skip, limit, total));
 }
@@ -38,6 +38,7 @@ async function creditCustomerCoins(userId, coins, description) {
   user.walletCoins += coins;
   await user.save();
   await LedgerEntryModel.create({
+    pool: 'customer',
     ownerId: user._id,
     kind: 'credit',
     coins,
@@ -63,6 +64,7 @@ async function recharge(req, res) {
   await user.save();
 
   const entry = await LedgerEntryModel.create({
+    pool: 'customer',
     ownerId: user._id,
     kind: 'credit',
     coins,
@@ -85,6 +87,7 @@ async function debit(req, res) {
   await user.save();
 
   const entry = await LedgerEntryModel.create({
+    pool: 'customer',
     ownerId: user._id,
     kind: 'debit',
     coins: body.coins,
@@ -101,6 +104,7 @@ async function creditCustomerWelcomeBonus(user, coins, description) {
   user.walletCoins += coins;
   await user.save();
   await LedgerEntryModel.create({
+    pool: 'customer',
     ownerId: user._id,
     kind: 'credit',
     coins,
