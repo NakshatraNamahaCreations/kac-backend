@@ -18,6 +18,18 @@ const agentSchema = new Schema(
     area: { type: String },
     bankAccounts: { type: [bankAccountSchema], default: [] },
     walletCoins: { type: Number, default: 0 },
+    // Admin approval, like Vendor.verificationStatus. Set to
+    // PENDING_VERIFICATION when someone registers as an agent; only an admin
+    // moves it to ACTIVE (admin.controller.js updateAgentVerification).
+    // null = agents from before verification existed (treated as ACTIVE), and
+    // the wallet-only Agent docs vendors get (see agent.controller.js
+    // requireOwnAgent) — see effectiveAgentStatus().
+    verificationStatus: {
+      type: String,
+      enum: ['PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED', null],
+      default: null,
+    },
+    verified: { type: Boolean, default: false },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );
@@ -26,4 +38,8 @@ applyIdTransform(agentSchema);
 
 const AgentModel = model('Agent', agentSchema);
 
-module.exports = { AgentModel, bankAccountSchema };
+function effectiveAgentStatus(agent) {
+  return agent?.verificationStatus ?? 'ACTIVE';
+}
+
+module.exports = { AgentModel, bankAccountSchema, effectiveAgentStatus };

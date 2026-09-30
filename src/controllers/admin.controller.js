@@ -2,7 +2,7 @@ const { z } = require('zod');
 const bcrypt = require('bcryptjs');
 const { UserModel } = require('../models/User');
 const { VendorModel } = require('../models/Vendor');
-const { AgentModel } = require('../models/Agent');
+const { AgentModel, effectiveAgentStatus } = require('../models/Agent');
 const { EmployeeModel } = require('../models/Employee');
 const { BookingModel } = require('../models/Booking');
 const { AdminModel } = require('../models/Admin');
@@ -198,10 +198,11 @@ async function listUsers(req, res) {
   }
 
   if (role === 'agent') {
-    const userIds = searchRe
-      ? (await UserModel.find({ $or: [{ name: searchRe }, { phone: searchRe }] }).select('_id')).map((u) => u._id)
-      : null;
-    const filter = userIds ? { userId: { $in: userIds } } : {};
+    // Only people who actually registered as agents — vendors also get a
+    // wallet-only Agent document (agent.controller.js requireOwnAgent).
+    const agentUserFilter = { roles: 'agent', ...(searchRe ? { $or: [{ name: searchRe }, { phone: searchRe }] } : {}) };
+    const userIds = (await UserModel.find(agentUserFilter).select('_id')).map((u) => u._id);
+    const filter = { userId: { $in: userIds } };
     const [total, agents] = await Promise.all([
       AgentModel.countDocuments(filter),
       AgentModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('userId', 'name phone'),
@@ -214,6 +215,7 @@ async function listUsers(req, res) {
       area: a.area ?? null,
       referralCode: a.executiveCode,
       walletCoins: a.walletCoins,
+      verificationStatus: effectiveAgentStatus(a),
       joinedAt: a.createdAt,
     }));
     return res.json(buildPage(data, skip, limit, total));
@@ -286,7 +288,15 @@ async function getUserDetail(req, res) {
     const agent = await AgentModel.findById(id).populate('userId', 'name phone area address');
     if (!agent) fail(404, 'NOT_FOUND', 'Agent not found.');
     const { userId, ...rest } = agent.toJSON();
-    return res.json({ role: 'agent', ...rest, name: userId?.name, phone: userId?.phone, address: userId?.address });
+    return res.json({
+      role: 'agent',
+      ...rest,
+      verificationStatus: effectiveAgentStatus(agent),
+      verified: effectiveAgentStatus(agent) === 'ACTIVE',
+      name: userId?.name,
+      phone: userId?.phone,
+      address: userId?.address,
+    });
   }
 
   if (role === 'employee') {
@@ -334,6 +344,25 @@ async function updateVendorVerification(req, res) {
   });
 
   res.json(vendor.toJSON());
+}
+
+// Agent counterpart of updateVendorVerification: approves (ACTIVE) or
+// un-approves (PENDING_VERIFICATION) an agent. Until approved, the agent app
+// shows a "waiting for approval" screen and agent.routes.js refuses
+// onboarding (requireActiveAgent).
+async function updateAgentVerification(req, res) {
+  const { verified } = updateVendorVerificationSchema.parse(req.body);
+  const agent = await AgentModel.findById(req.params.id);
+  if (!agent) fail(404, 'NOT_FOUND', 'Agent not found.');
+
+  agent.verified = verified;
+  agent.verificationStatus = verified ? 'ACTIVE' : 'PENDING_VERIFICATION';
+  await agent.save();
+
+  // SocketProvider.jsx flips a waiting agent into the app live.
+  io()?.to(`user:${String(agent.userId)}`).emit('agent.verified', { status: agent.verificationStatus });
+
+  res.json({ id: agent.id, verified: agent.verified, verificationStatus: agent.verificationStatus });
 }
 
 // Sequential-looking ids (EMP-1001, EMP-1002, ...) — admin-direct-create has
@@ -496,6 +525,7 @@ module.exports = {
   listUsers,
   getUserDetail,
   updateVendorVerification,
+  updateAgentVerification,
   createUser,
   listBookings,
 };

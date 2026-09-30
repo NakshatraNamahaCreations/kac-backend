@@ -10,6 +10,7 @@ const {
   getUserDetail,
   listBookings,
   listUsers,
+  updateAgentVerification,
   updateVendorVerification,
 } = require('../controllers/admin.controller');
 const { createUploadAdmin, getUploadAdmin } = require('../controllers/uploads.controller');
@@ -55,6 +56,7 @@ adminRouter.get('/admin/users', asyncHandler(listUsers));
 adminRouter.get('/admin/users/:role/:id', asyncHandler(getUserDetail));
 adminRouter.post('/admin/users', asyncHandler(createUser));
 adminRouter.patch('/admin/users/vendor/:id/verify', asyncHandler(updateVendorVerification));
+adminRouter.patch('/admin/users/agent/:id/verify', asyncHandler(updateAgentVerification));
 adminRouter.get('/admin/bookings', asyncHandler(listBookings));
 adminRouter.get('/admin/payments', asyncHandler(listPayments));
 adminRouter.post('/admin/uploads', asyncHandler(createUploadAdmin));

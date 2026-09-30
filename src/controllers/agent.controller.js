@@ -1,5 +1,5 @@
 const { z } = require('zod');
-const { AgentModel } = require('../models/Agent');
+const { AgentModel, effectiveAgentStatus } = require('../models/Agent');
 const { OnboardingModel } = require('../models/Onboarding');
 const { LedgerEntryModel } = require('../models/LedgerEntry');
 const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
@@ -50,6 +50,14 @@ async function registerAgent(req, res) {
       bankAccounts: [],
       walletCoins: 0,
     });
+  }
+
+  // New agents wait for admin approval before they can onboard vendors
+  // (requireActiveAgent). Re-submitting the form as an existing agent keeps
+  // whatever status they already have.
+  if (!user.roles.includes('agent')) {
+    agent.verificationStatus = 'PENDING_VERIFICATION';
+    agent.verified = false;
   }
 
   const digits = body.bank.accountNumber.replace(/\D+/g, '');
@@ -103,6 +111,28 @@ async function requireOwnAgent(userId) {
   return agent;
 }
 
+// Route guard for everything an agent does on the platform's behalf
+// (onboarding vendors, collecting their fees). Mounted after
+// requireRole('agent').
+async function requireActiveAgent(req, _res, next) {
+  try {
+    const agent = await AgentModel.findOne({ userId: req.user._id }, 'verificationStatus');
+    const status = effectiveAgentStatus(agent);
+    if (status !== 'ACTIVE') {
+      fail(
+        403,
+        'AGENT_NOT_VERIFIED',
+        status === 'SUSPENDED'
+          ? 'Your agent account is suspended. Contact GigKaar support.'
+          : 'Your agent account is waiting for admin approval.',
+      );
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function getAgentDashboard(req, res) {
   const agent = await requireOwnAgent(req.user._id);
   const onboardings = await OnboardingModel.find({ agentId: req.user._id });
@@ -118,6 +148,9 @@ async function getAgentDashboard(req, res) {
   // link click tracking endpoint exists in the contract) — reported equal to
   // onboardings rather than inventing a synthetic multiplier.
   res.json({
+    // AgentStack.jsx gates the app on this (PENDING_VERIFICATION / SUSPENDED
+    // -> "waiting for approval" screen).
+    verificationStatus: effectiveAgentStatus(agent),
     executiveCode: agent.executiveCode,
     totals: { onboardings: onboardings.length, earningsCoins: totalsCoins, appInstalls: onboardings.length },
     today: { onboardings: todaysActive.length, earningsCoins: todayEarnings, appInstalls: todaysActive.length },
@@ -277,6 +310,7 @@ async function creditReferralCodeForAgent(referralCode, referredName, referredPh
 
 module.exports = {
   registerAgent,
+  requireActiveAgent,
   getAgentDashboard,
   createOnboarding,
   listOnboardings,
