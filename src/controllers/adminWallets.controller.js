@@ -2,6 +2,7 @@ const { isValidObjectId } = require('mongoose');
 const { UserModel } = require('../models/User');
 const { VendorModel } = require('../models/Vendor');
 const { AgentModel } = require('../models/Agent');
+const { EmployeeModel, EmployeeReferralModel } = require('../models/Employee');
 const { LedgerEntryModel } = require('../models/LedgerEntry');
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { fail } = require('../lib/httpError');
@@ -42,20 +43,56 @@ async function walletSummary() {
     customer: { ...customer, holders: await UserModel.countDocuments({ roles: 'customer' }) },
     vendor: { ...vendor, holders: vendorUserIds.length },
     agent: { ...agent, holders: agentUserIds.length },
+    // Employees have no earnings wallet of their own — this is the coin
+    // balance on their user account (if they also use the app as a
+    // customer), shown so admins see every role in one place.
+    employee: {
+      ...(await sumCoins(UserModel, { roles: 'employee' })),
+      holders: await EmployeeModel.countDocuments(),
+    },
   };
 }
 
 // GET /admin/wallets?role=customer|vendor|agent&search&cursor
 // Highest balances first. First page also carries `summary`.
 async function listWallets(req, res) {
-  const role = ['customer', 'vendor', 'agent'].includes(req.query.role) ? req.query.role : 'customer';
+  const role = ['customer', 'vendor', 'agent', 'employee'].includes(req.query.role) ? req.query.role : 'customer';
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
   const searchRe = search ? new RegExp(escapeRegex(search), 'i') : null;
   const skip = parseCursor(typeof req.query.cursor === 'string' ? req.query.cursor : undefined);
 
   let total;
   let rows;
-  if (role === 'customer') {
+  if (role === 'employee') {
+    // Employee record (ID, area, referral code, how many people they've
+    // referred) + the coin balance on their user account.
+    const userFilter = { roles: 'employee', ...(searchRe ? { $or: [{ name: searchRe }, { phone: searchRe }] } : {}) };
+    const users = await UserModel.find(userFilter, 'name phone walletCoins');
+    const userById = new Map(users.map((u) => [String(u._id), u]));
+    const employees = await EmployeeModel.find({ userId: { $in: users.map((u) => u._id) } });
+    const counts = await EmployeeReferralModel.aggregate([
+      { $match: { employeeId: { $in: employees.map((e) => e._id) } } },
+      { $group: { _id: '$employeeId', n: { $sum: 1 } } },
+    ]);
+    const referralsBy = new Map(counts.map((c) => [String(c._id), c.n]));
+    const all = employees
+      .map((e) => {
+        const u = userById.get(String(e.userId));
+        return {
+          userId: String(e.userId),
+          name: u?.name ?? null,
+          phone: u?.phone ?? null,
+          employeeId: e.employeeId,
+          area: e.areaAssigned,
+          referralCode: e.referralCode,
+          referrals: referralsBy.get(String(e._id)) ?? 0,
+          coins: u?.walletCoins ?? 0,
+        };
+      })
+      .sort((a, b) => b.referrals - a.referrals || b.coins - a.coins);
+    total = all.length;
+    rows = all.slice(skip, skip + PAGE_LIMIT);
+  } else if (role === 'customer') {
     const filter = { roles: 'customer', ...(searchRe ? { $or: [{ name: searchRe }, { phone: searchRe }] } : {}) };
     const users = await UserModel.find(filter, 'name phone roles walletCoins')
       .sort({ walletCoins: -1, _id: 1 })
