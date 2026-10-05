@@ -7,6 +7,7 @@ const {
   createOnboardingOrder,
   createVendorOrder,
   createWalletOrder,
+  getRegistrationPaymentStatus,
   verifyPayment,
 } = require('../controllers/payments.controller');
 const { requireActiveAgent } = require('../controllers/agent.controller');
@@ -14,6 +15,7 @@ const { requireActiveAgent } = require('../controllers/agent.controller');
 const paymentsRouter = Router();
 paymentsRouter.use(requireAuth);
 
+paymentsRouter.get('/payments/registration-status', asyncHandler(getRegistrationPaymentStatus));
 paymentsRouter.post('/payments/vendor-order', asyncHandler(createVendorOrder));
 paymentsRouter.post('/payments/agent-order', asyncHandler(createAgentOrder));
 paymentsRouter.post('/payments/onboarding-order', requireRole('agent'), requireActiveAgent, asyncHandler(createOnboardingOrder));

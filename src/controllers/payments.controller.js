@@ -203,6 +203,26 @@ async function consumePaidPayment(userId, purpose, { plan } = {}) {
   }
 }
 
+// GET /payments/registration-status?purpose=VENDOR_REGISTRATION|AGENT_MEMBERSHIP
+// Signup now takes the fee FIRST and the details after, so someone can pay,
+// close the app, and come back later. This tells the app a verified fee is
+// already waiting to be used, so it skips straight past payment instead of
+// charging again. { paid, plan, amountPaise }
+async function getRegistrationPaymentStatus(req, res) {
+  const purpose = req.query.purpose === 'AGENT_MEMBERSHIP' ? 'AGENT_MEMBERSHIP' : 'VENDOR_REGISTRATION';
+  const payment = await PaymentModel.findOne({
+    userId: req.user._id,
+    purpose,
+    status: 'PAID',
+    consumed: false,
+  }).sort({ paidAt: 1 });
+  res.json({
+    paid: !!payment,
+    plan: payment?.plan ?? null,
+    amountPaise: payment?.amountPaise ?? null,
+  });
+}
+
 // createOnboarding's counterpart to consumePaidPayment: requires the agent's
 // PAID, unused VENDOR_ONBOARDING payment for exactly this vendor phone + plan
 // and marks it used. Returns the Payment id, or null in demo mode (no
@@ -221,6 +241,7 @@ async function consumeOnboardingPayment(agentUserId, vendorPhone, plan) {
 }
 
 module.exports = {
+  getRegistrationPaymentStatus,
   createVendorOrder,
   createOnboardingOrder,
   consumeOnboardingPayment,
