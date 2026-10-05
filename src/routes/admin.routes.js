@@ -22,7 +22,7 @@ const {
   searchPlacesAdmin,
   updateUserAdmin,
 } = require('../controllers/adminUserEdit.controller');
-const { getWalletLedger, listWallets } = require('../controllers/adminWallets.controller');
+const { getWalletLedger, listEmployeeReferrals, listWallets } = require('../controllers/adminWallets.controller');
 const {
   createPlan,
   deletePlan,
@@ -72,6 +72,7 @@ adminRouter.get('/admin/payments', asyncHandler(listPayments));
 adminRouter.get('/admin/wallets', asyncHandler(listWallets));
 adminRouter.get('/admin/wallets/:userId/ledger', asyncHandler(getWalletLedger));
 adminRouter.post('/admin/wallets/:userId/adjust', asyncHandler(adjustWalletAdmin));
+adminRouter.get('/admin/employees/:userId/referrals', asyncHandler(listEmployeeReferrals));
 adminRouter.get('/admin/places/search', asyncHandler(searchPlacesAdmin));
 adminRouter.get('/admin/places/:placeId', asyncHandler(placeDetailsAdmin));
 adminRouter.post('/admin/uploads', asyncHandler(createUploadAdmin));

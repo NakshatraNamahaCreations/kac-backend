@@ -46,8 +46,9 @@ async function walletSummary() {
     // Employees have no earnings wallet of their own — this is the coin
     // balance on their user account (if they also use the app as a
     // customer), shown so admins see every role in one place.
+    // Employees have no wallet — they're shown by the people they referred.
     employee: {
-      ...(await sumCoins(UserModel, { roles: 'employee' })),
+      referrals: await EmployeeReferralModel.countDocuments(),
       holders: await EmployeeModel.countDocuments(),
     },
   };
@@ -168,4 +169,33 @@ async function getWalletLedger(req, res) {
   });
 }
 
-module.exports = { listWallets, getWalletLedger };
+// GET /admin/employees/:userId/referrals — everyone who joined with this
+// employee's referral code, newest first, with a per-role breakdown.
+async function listEmployeeReferrals(req, res) {
+  const { userId } = req.params;
+  if (!isValidObjectId(userId)) fail(404, 'NOT_FOUND', 'Employee not found.');
+  const employee = await EmployeeModel.findOne({ userId });
+  if (!employee) fail(404, 'NOT_FOUND', 'Employee not found.');
+  const refs = await EmployeeReferralModel.find({ employeeId: employee._id }).sort({ createdAt: -1 }).limit(500);
+  const byRole = { customer: 0, vendor: 0, agent: 0 };
+  refs.forEach((r) => {
+    byRole[r.role] = (byRole[r.role] ?? 0) + 1;
+  });
+  res.json({
+    employeeId: employee.employeeId,
+    referralCode: employee.referralCode,
+    total: refs.length,
+    byRole,
+    data: refs.map((r) => ({
+      id: String(r._id),
+      createdAt: r.createdAt,
+      name: r.userName,
+      phone: r.userPhone,
+      role: r.role,
+      area: r.area,
+      status: r.status,
+    })),
+  });
+}
+
+module.exports = { listWallets, getWalletLedger, listEmployeeReferrals };
