@@ -15,7 +15,13 @@ const {
 } = require('../controllers/admin.controller');
 const { createUploadAdmin, getUploadAdmin } = require('../controllers/uploads.controller');
 const { listPayments } = require('../controllers/adminPayments.controller');
-const { deleteUserAdmin, updateUserAdmin } = require('../controllers/adminUserEdit.controller');
+const {
+  adjustWalletAdmin,
+  deleteUserAdmin,
+  placeDetailsAdmin,
+  searchPlacesAdmin,
+  updateUserAdmin,
+} = require('../controllers/adminUserEdit.controller');
 const { getWalletLedger, listWallets } = require('../controllers/adminWallets.controller');
 const {
   createPlan,
@@ -65,6 +71,9 @@ adminRouter.get('/admin/bookings', asyncHandler(listBookings));
 adminRouter.get('/admin/payments', asyncHandler(listPayments));
 adminRouter.get('/admin/wallets', asyncHandler(listWallets));
 adminRouter.get('/admin/wallets/:userId/ledger', asyncHandler(getWalletLedger));
+adminRouter.post('/admin/wallets/:userId/adjust', asyncHandler(adjustWalletAdmin));
+adminRouter.get('/admin/places/search', asyncHandler(searchPlacesAdmin));
+adminRouter.get('/admin/places/:placeId', asyncHandler(placeDetailsAdmin));
 adminRouter.post('/admin/uploads', asyncHandler(createUploadAdmin));
 adminRouter.get('/admin/uploads/:id', asyncHandler(getUploadAdmin));
 adminRouter.get('/admin/plans', asyncHandler(listPlansAdmin));

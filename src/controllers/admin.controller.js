@@ -285,11 +285,14 @@ async function getUserDetail(req, res) {
     await ensureVendorReferralCode(vendor);
     // Category ids -> names for display.
     const cats = await CategoryModel.find({ _id: { $in: vendor.categories ?? [] } }, 'name');
+    // A vendor's wallet lives on their Agent document.
+    const wallet = await AgentModel.findOne({ userId: vendor.userId }, 'walletCoins');
     const nameById = new Map(cats.map((c) => [String(c._id), c.name]));
     return res.json({
       role: 'vendor',
       ...vendor.toJSON(),
       categoryNames: (vendor.categories ?? []).map((c) => nameById.get(String(c)) ?? c),
+      walletCoins: wallet?.walletCoins ?? 0,
     });
   }
 
@@ -304,6 +307,7 @@ async function getUserDetail(req, res) {
     return res.json({
       role: 'agent',
       ...rest,
+      userId: userId?._id ? String(userId._id) : null,
       verificationStatus: effectiveAgentStatus(agent),
       verified: effectiveAgentStatus(agent) === 'ACTIVE',
       name: userId?.name,
