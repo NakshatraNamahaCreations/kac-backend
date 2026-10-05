@@ -12,6 +12,7 @@ const { normalizePhone } = require('../lib/phone');
 const { agentReferralCode } = require('../lib/referralCode');
 const { searchPlaces, placeDetails } = require('../lib/googlePlaces');
 const { fail } = require('../lib/httpError');
+const { assertOwnedUploads, publicUrlForOwnedKey } = require('./uploads.controller');
 
 // Admin edit / delete / wallet adjust for the Users page. Ids are the same
 // (role, id) pair listUsers / getUserDetail use: a User id for 'customer'
@@ -44,6 +45,11 @@ const kycSchema = z
     gstNumber: z.string().trim().regex(/^[0-9A-Za-z]{15}$/, 'GST number must be 15 characters').or(z.literal('')).optional(),
     ownerName: text(80),
     establishedYear: z.string().trim().regex(/^\d{4}$/, 'Year must be 4 digits').or(z.literal('')).optional(),
+    // Upload keys from POST /admin/uploads (uploaded on the user's behalf),
+    // or null to clear the photo.
+    aadhaarPhotoKey: z.string().nullable().optional(),
+    panPhotoKey: z.string().nullable().optional(),
+    gstPhotoKey: z.string().nullable().optional(),
   })
   .optional();
 
@@ -69,6 +75,11 @@ const editSchemas = {
     bio: text(500),
     availability: z.enum(['ACTIVE', 'AWAY', 'BUSY']).optional(),
     categories: z.array(z.string().min(1)).min(1, 'Pick at least one category').max(10).optional(),
+    // Offers / sub-services picked from the categories' tag lists.
+    serviceTags: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
+    // Cover photo: an upload key (kind 'shop' / 'profile' / 'gallery'
+    // uploaded for this vendor), or null to remove it.
+    coverPhotoKey: z.string().nullable().optional(),
     services: z
       .array(z.object({ name: z.string().trim().min(1).max(80), pricePaise: z.number().int().min(0).nullable() }))
       .max(20)
@@ -137,6 +148,9 @@ function applyKyc(existing, kyc, { withOwner }) {
   if (kyc.aadhaarName !== undefined) next.aadhaarName = kyc.aadhaarName || null;
   if (kyc.panNumber !== undefined) next.panNumber = kyc.panNumber ? kyc.panNumber.toUpperCase() : null;
   if (kyc.gstNumber !== undefined) next.gstNumber = kyc.gstNumber ? kyc.gstNumber.toUpperCase() : null;
+  for (const k of ['aadhaarPhotoKey', 'panPhotoKey', 'gstPhotoKey']) {
+    if (kyc[k] !== undefined) next[k] = kyc[k] || null;
+  }
   if (withOwner) {
     if (kyc.ownerName !== undefined) next.ownerName = kyc.ownerName || null;
     if (kyc.establishedYear !== undefined) next.establishedYear = kyc.establishedYear || null;
@@ -173,8 +187,25 @@ async function updateUserAdmin(req, res) {
       if (!planDoc) fail(400, 'INVALID_PLAN', 'That plan no longer exists.');
     }
 
+    // Photos must belong to this vendor (admin uploads them on the vendor's
+    // behalf), so their app can open them too.
+    await assertOwnedUploads(vendor.userId, [
+      body.kyc?.aadhaarPhotoKey,
+      body.kyc?.panPhotoKey,
+      body.kyc?.gstPhotoKey,
+      body.coverPhotoKey,
+    ]);
+    let coverUrl;
+    if (body.coverPhotoKey) {
+      coverUrl = await publicUrlForOwnedKey(vendor.userId, body.coverPhotoKey);
+      if (!coverUrl) fail(400, 'INVALID_UPLOAD', 'That cover photo is missing. Please upload it again.');
+    }
+
     await changePhone(vendor.userId, body.phone);
     const fresh = await VendorModel.findById(id);
+    if (body.serviceTags) fresh.serviceTags = body.serviceTags;
+    if (coverUrl) fresh.photoUrl = coverUrl;
+    else if (body.coverPhotoKey === null) fresh.photoUrl = null;
 
     Object.assign(
       fresh,
@@ -207,6 +238,7 @@ async function updateUserAdmin(req, res) {
   if (role === 'agent') {
     const agent = await AgentModel.findById(id);
     if (!agent) fail(404, 'NOT_FOUND', 'Agent not found.');
+    await assertOwnedUploads(agent.userId, [body.kyc?.aadhaarPhotoKey, body.kyc?.panPhotoKey, body.kyc?.gstPhotoKey]);
     await changePhone(agent.userId, body.phone);
     if (body.area !== undefined) agent.area = body.area;
     if (body.bank) {

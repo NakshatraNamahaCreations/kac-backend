@@ -2,6 +2,7 @@ const { z } = require('zod');
 const { isValidObjectId } = require('mongoose');
 const { UploadModel, UPLOAD_KINDS, PRIVATE_KINDS } = require('../models/Upload');
 const { VendorModel } = require('../models/Vendor');
+const { UserModel } = require('../models/User');
 const { fail } = require('../lib/httpError');
 const { cloudinaryConfigured, uploadImageBuffer, fetchPrivateImage } = require('../lib/cloudinary');
 
@@ -101,15 +102,30 @@ async function createUpload(req, res) {
 }
 
 // POST /admin/uploads { kind: 'category', dataBase64 } — admin panel images.
+// POST /admin/uploads { kind, dataBase64, ownerUserId? }
+//   'category' — admin-owned category image.
+//   KYC / shop / profile / gallery — uploaded by the admin ON BEHALF of a
+//   user (ownerUserId), so it's owned by that user exactly as if they had
+//   uploaded it from the app: their app can show it, and the usual
+//   ownership checks (assertOwnedUploads) accept it on their profile.
 const adminUploadSchema = z.object({
-  kind: z.enum(['category']),
+  kind: z.enum(['category', 'aadhaar', 'pan', 'gst', 'shop', 'profile', 'gallery']),
   dataBase64: z.string().min(100),
+  ownerUserId: z.string().optional(),
 });
 
 async function createUploadAdmin(req, res) {
   const body = adminUploadSchema.parse(req.body);
+  let ownerId = null;
+  if (body.kind !== 'category') {
+    if (!body.ownerUserId || !isValidObjectId(body.ownerUserId)) {
+      fail(400, 'OWNER_REQUIRED', 'Which user is this photo for?');
+    }
+    if (!(await UserModel.exists({ _id: body.ownerUserId }))) fail(404, 'NOT_FOUND', 'User not found.');
+    ownerId = body.ownerUserId;
+  }
   const { data, contentType } = decodeImage(body.dataBase64);
-  const doc = await storeImage({ kind: body.kind, data, contentType, ownerId: null, uploadedByAdmin: true });
+  const doc = await storeImage({ kind: body.kind, data, contentType, ownerId, uploadedByAdmin: true });
   res.status(201).json(uploadResponse(doc));
 }
 
