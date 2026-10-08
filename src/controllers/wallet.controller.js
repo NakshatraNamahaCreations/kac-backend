@@ -5,6 +5,7 @@ const { fail } = require('../lib/httpError');
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { agentReferralCode } = require('../lib/referralCode');
 const { razorpayConfigured } = require('../lib/razorpay');
+const { accountFields } = require('../lib/aadhaarVault');
 
 // Wallet balance lives on the Agent document regardless of role — agents AND
 // vendors both hit these endpoints (requireRole('agent', 'vendor')) since a
@@ -55,7 +56,7 @@ async function addBankAccount(req, res) {
   const agent = await requireOwnAgent(req.user._id);
   agent.bankAccounts.push({
     accountHolder: body.accountHolder.trim(),
-    accountNumberMasked: `XXXX${digits.slice(-4)}`,
+    ...accountFields(digits),
     ifsc: body.ifsc.toUpperCase(),
   });
   await agent.save();

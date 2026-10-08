@@ -2,6 +2,7 @@ const { z } = require('zod');
 const { VendorModel } = require('../models/Vendor');
 const { VendorPlanModel } = require('../models/VendorPlan');
 const { OnboardingModel } = require('../models/Onboarding');
+const { aadhaarFields, accountFields } = require('../lib/aadhaarVault');
 const { env } = require('../config/env');
 const { VendorReferralModel } = require('../models/VendorReferral');
 const { BookingModel } = require('../models/Booking');
@@ -25,16 +26,6 @@ const serviceSchema = z.object({
 // so the UI never lets a vendor stage more than the server will accept.
 const MAX_SERVICE_ITEMS = 3;
 
-// Only the masked form is ever persisted — mirrors wallet.controller.js's
-// addBankAccount, which does the same for agent payout accounts.
-function maskAccountNumber(accountNumber) {
-  const digits = accountNumber.replace(/\D+/g, '');
-  return `XXXX${digits.slice(-4)}`;
-}
-function maskAadhaar(aadhaarNumber) {
-  const digits = aadhaarNumber.replace(/\D+/g, '');
-  return `XXXX XXXX ${digits.slice(-4)}`;
-}
 
 const registerSchema = z.object({
   categories: z.array(z.string()).min(1),
@@ -186,11 +177,11 @@ async function registerVendor(req, res) {
     verificationStatus: 'PENDING_PAYMENT',
     bank: {
       accountHolder: body.bank.accountHolder,
-      accountNumberMasked: maskAccountNumber(body.bank.accountNumber),
+      ...accountFields(body.bank.accountNumber),
       ifsc: body.bank.ifsc.toUpperCase(),
     },
     kyc: {
-      aadhaarNumberMasked: body.aadhaarNumber ? maskAadhaar(body.aadhaarNumber) : null,
+      ...(body.aadhaarNumber ? aadhaarFields(body.aadhaarNumber) : { aadhaarNumberMasked: null, aadhaarNumberEnc: null }),
       aadhaarName: body.aadhaarName ?? null,
       aadhaarPhotoKey: body.aadhaarPhotoKey ?? null,
       panNumber: body.panNumber ?? null,
@@ -353,13 +344,13 @@ async function patchMyVendor(req, res) {
   if (bank) {
     vendor.bank = {
       accountHolder: bank.accountHolder,
-      accountNumberMasked: maskAccountNumber(bank.accountNumber),
+      ...accountFields(bank.accountNumber),
       ifsc: bank.ifsc.toUpperCase(),
     };
   }
 
   const kycPatch = {
-    ...(aadhaarNumber !== undefined ? { aadhaarNumberMasked: maskAadhaar(aadhaarNumber) } : {}),
+    ...(aadhaarNumber !== undefined ? aadhaarFields(aadhaarNumber) : {}),
     ...(aadhaarName !== undefined ? { aadhaarName } : {}),
     ...(aadhaarPhotoKey !== undefined ? { aadhaarPhotoKey } : {}),
     ...(panNumber !== undefined ? { panNumber } : {}),

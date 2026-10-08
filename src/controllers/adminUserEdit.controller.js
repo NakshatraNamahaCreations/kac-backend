@@ -12,6 +12,7 @@ const { normalizePhone } = require('../lib/phone');
 const { agentReferralCode } = require('../lib/referralCode');
 const { searchPlaces, placeDetails } = require('../lib/googlePlaces');
 const { fail } = require('../lib/httpError');
+const { aadhaarFields, accountFields } = require('../lib/aadhaarVault');
 const { assertOwnedUploads, publicUrlForOwnedKey } = require('./uploads.controller');
 
 // Admin edit / delete / wallet adjust for the Users page. Ids are the same
@@ -115,9 +116,6 @@ function pick(obj, keys) {
   return Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]));
 }
 
-const maskAccount = (n) => `XXXX${n.replace(/\D+/g, '').slice(-4)}`;
-const maskAadhaar = (n) => `XXXX XXXX ${n.replace(/\D+/g, '').slice(-4)}`;
-
 // Changes a user's login phone: same +91XXXXXXXXXX format OTP login uses,
 // must not belong to anyone else, mirrored onto their vendor profile, and
 // signs them out so the next login uses the new number.
@@ -144,7 +142,7 @@ async function changePhone(userId, rawPhone) {
 function applyKyc(existing, kyc, { withOwner }) {
   if (!kyc) return existing;
   const next = { ...(existing?.toObject?.() ?? existing ?? {}) };
-  if (kyc.aadhaarNumber) next.aadhaarNumberMasked = maskAadhaar(kyc.aadhaarNumber);
+  if (kyc.aadhaarNumber) Object.assign(next, aadhaarFields(kyc.aadhaarNumber));
   if (kyc.aadhaarName !== undefined) next.aadhaarName = kyc.aadhaarName || null;
   if (kyc.panNumber !== undefined) next.panNumber = kyc.panNumber ? kyc.panNumber.toUpperCase() : null;
   if (kyc.gstNumber !== undefined) next.gstNumber = kyc.gstNumber ? kyc.gstNumber.toUpperCase() : null;
@@ -227,7 +225,12 @@ async function updateUserAdmin(req, res) {
       fresh.bank = {
         accountHolder: body.bank.accountHolder,
         ifsc: body.bank.ifsc.toUpperCase(),
-        accountNumberMasked: body.bank.accountNumber ? maskAccount(body.bank.accountNumber) : fresh.bank?.accountNumberMasked ?? null,
+        ...(body.bank.accountNumber
+          ? accountFields(body.bank.accountNumber)
+          : {
+              accountNumberMasked: fresh.bank?.accountNumberMasked ?? null,
+              accountNumberEnc: fresh.bank?.accountNumberEnc ?? null,
+            }),
       };
     }
     if (body.kyc) fresh.kyc = applyKyc(fresh.kyc, body.kyc, { withOwner: true });
@@ -245,9 +248,13 @@ async function updateUserAdmin(req, res) {
       // Agents can hold several payout accounts; the admin edits the
       // primary (first) one.
       const first = agent.bankAccounts[0];
-      const masked = body.bank.accountNumber ? maskAccount(body.bank.accountNumber) : first?.accountNumberMasked;
-      if (!masked) fail(400, 'ACCOUNT_REQUIRED', 'Enter the account number.');
-      const acct = { accountHolder: body.bank.accountHolder, ifsc: body.bank.ifsc.toUpperCase(), accountNumberMasked: masked };
+      if (!body.bank.accountNumber && !first?.accountNumberMasked) fail(400, 'ACCOUNT_REQUIRED', 'Enter the account number.');
+      // No new number = keep the stored masked/encrypted pair as is.
+      const acct = {
+        accountHolder: body.bank.accountHolder,
+        ifsc: body.bank.ifsc.toUpperCase(),
+        ...(body.bank.accountNumber ? accountFields(body.bank.accountNumber) : {}),
+      };
       if (first) Object.assign(first, acct);
       else agent.bankAccounts.push(acct);
     }

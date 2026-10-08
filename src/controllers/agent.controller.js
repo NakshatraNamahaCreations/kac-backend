@@ -12,6 +12,7 @@ const { VendorModel } = require('../models/Vendor');
 const { VendorPlanModel } = require('../models/VendorPlan');
 const { fail } = require('../lib/httpError');
 const { assertOwnedUploads } = require('./uploads.controller');
+const { aadhaarFields, accountFields } = require('../lib/aadhaarVault');
 
 // Lazy require — vendorReferral.controller.js requires agent.controller.js
 // for creditAgentCoins, so a top-level require here would form a cycle.
@@ -52,8 +53,7 @@ async function applyAgentKyc(agent, userId, body) {
     if (value !== undefined && value !== '') kyc[field] = value;
   };
   if (body.aadhaarNumber) {
-    const digits = body.aadhaarNumber.replace(/\D+/g, '');
-    kyc.aadhaarNumberMasked = `XXXX XXXX ${digits.slice(-4)}`;
+    Object.assign(kyc, aadhaarFields(body.aadhaarNumber));
   }
   set('aadhaarName', body.aadhaarName?.trim());
   set('aadhaarPhotoKey', body.aadhaarPhotoKey);
@@ -102,10 +102,9 @@ async function registerAgent(req, res) {
   // agent documents never reached the server or the admin panel.
   await applyAgentKyc(agent, user._id, body);
 
-  const digits = body.bank.accountNumber.replace(/\D+/g, '');
   const ifsc = body.bank.ifsc.toUpperCase();
   agent.bankAccounts.filter((b) => b.ifsc === ifsc).forEach((b) => agent.bankAccounts.pull(b._id));
-  agent.bankAccounts.push({ accountHolder: body.bank.accountHolder, accountNumberMasked: `XXXX${digits.slice(-4)}`, ifsc });
+  agent.bankAccounts.push({ accountHolder: body.bank.accountHolder, ...accountFields(body.bank.accountNumber), ifsc });
   await agent.save();
 
   if (!user.roles.includes('agent')) {

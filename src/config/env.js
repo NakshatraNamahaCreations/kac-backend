@@ -39,6 +39,8 @@ const env = {
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? '',
   // Admin panel address search (lib/googlePlaces.js) — same key as the app.
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY ?? '',
+  // Encrypts full Aadhaar numbers at rest (lib/aadhaarVault.js). 64 hex chars.
+  aadhaarEncKey: process.env.AADHAAR_ENC_KEY ?? '',
   // Whether requestOtp echoes the real per-request code back in its
   // response (session.controller.js) — shown outside production by
   // default, same as before. SHOW_DEV_OTP=true opts a production deploy

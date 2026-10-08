@@ -5,6 +5,8 @@ const bankAccountSchema = new Schema(
   {
     accountHolder: { type: String, required: true },
     accountNumberMasked: { type: String, required: true },
+    // Full number, AES-256-GCM encrypted (lib/aadhaarVault.js). Admin only.
+    accountNumberEnc: { type: String, default: null },
     ifsc: { type: String, required: true },
   },
   { _id: true },
@@ -35,6 +37,8 @@ const agentSchema = new Schema(
     // Aadhaar number is stored masked only, same as Vendor.kyc.
     kyc: {
       aadhaarNumberMasked: { type: String, default: null },
+      // Full number, AES-256-GCM encrypted (lib/aadhaarVault.js). Admin only.
+      aadhaarNumberEnc: { type: String, default: null },
       aadhaarName: { type: String, default: null },
       aadhaarPhotoKey: { type: String, default: null },
       panNumber: { type: String, default: null },

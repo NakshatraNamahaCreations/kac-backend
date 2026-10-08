@@ -53,11 +53,13 @@ const vendorSchema = new Schema(
       enum: ['PENDING_PAYMENT', 'PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED'],
       default: 'PENDING_PAYMENT',
     },
-    // Payout bank account — only the masked account number is ever
-    // persisted (mirrors Agent.bankAccounts), the raw number never is.
+    // Payout bank account — masked number for display, full number only
+    // encrypted (mirrors Agent.bankAccounts); plain text is never stored.
     bank: {
       accountHolder: { type: String, default: null },
       accountNumberMasked: { type: String, default: null },
+      // Full number, AES-256-GCM encrypted (lib/aadhaarVault.js). Admin only.
+      accountNumberEnc: { type: String, default: null },
       ifsc: { type: String, default: null },
     },
     // KYC — aadhaarNumber is masked before storage for the same reason bank
@@ -65,6 +67,8 @@ const vendorSchema = new Schema(
     // in full.
     kyc: {
       aadhaarNumberMasked: { type: String, default: null },
+      // Full number, AES-256-GCM encrypted (lib/aadhaarVault.js). Admin only.
+      aadhaarNumberEnc: { type: String, default: null },
       aadhaarName: { type: String, default: null },
       aadhaarPhotoKey: { type: String, default: null },
       panNumber: { type: String, default: null },

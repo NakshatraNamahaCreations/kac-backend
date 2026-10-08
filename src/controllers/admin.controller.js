@@ -15,6 +15,7 @@ const { buildPage, parseCursor } = require('../lib/pagination');
 const { customerReferralCode, vendorReferralCode, agentReferralCode } = require('../lib/referralCode');
 const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
+const { decryptAadhaar, decryptSecret } = require('../lib/aadhaarVault');
 
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -288,9 +289,22 @@ async function getUserDetail(req, res) {
     // A vendor's wallet lives on their Agent document.
     const wallet = await AgentModel.findOne({ userId: vendor.userId }, 'walletCoins');
     const nameById = new Map(cats.map((c) => [String(c._id), c.name]));
+    // Full Aadhaar (admin only): decrypt the stored copy; for vendors an agent
+    // onboarded before encryption existed, the Onboarding row still has it.
+    const json = vendor.toJSON();
+    let aadhaarNumber = decryptAadhaar(vendor.kyc?.aadhaarNumberEnc);
+    if (!aadhaarNumber) {
+      const ob = await OnboardingModel.findOne(
+        { vendorPhone: vendor.phone, aadhaarNumber: { $nin: [null, ''] } },
+        'aadhaarNumber',
+      ).sort({ createdAt: -1 });
+      aadhaarNumber = ob?.aadhaarNumber ?? null;
+    }
     return res.json({
       role: 'vendor',
-      ...vendor.toJSON(),
+      ...json,
+      kyc: { ...(json.kyc ?? {}), aadhaarNumber },
+      bank: json.bank ? { ...json.bank, accountNumber: decryptSecret(vendor.bank?.accountNumberEnc) } : json.bank,
       categoryNames: (vendor.categories ?? []).map((c) => nameById.get(String(c)) ?? c),
       walletCoins: wallet?.walletCoins ?? 0,
     });
@@ -300,9 +314,14 @@ async function getUserDetail(req, res) {
     const agent = await AgentModel.findById(id).populate('userId', 'name phone area address');
     if (!agent) fail(404, 'NOT_FOUND', 'Agent not found.');
     const { userId, ...rest } = agent.toJSON();
+    rest.kyc = { ...(rest.kyc ?? {}), aadhaarNumber: decryptAadhaar(agent.kyc?.aadhaarNumberEnc) };
+    rest.bankAccounts = (rest.bankAccounts ?? []).map((b, i) => ({
+      ...b,
+      accountNumber: decryptSecret(agent.bankAccounts[i]?.accountNumberEnc),
+    }));
     // Every vendor this agent onboarded in person, with what they collected
     // (KYC photo keys are viewable through GET /admin/uploads/:id). The full
-    // Aadhaar number is stored on Onboarding; only the last 4 go out.
+    // Aadhaar number is stored on Onboarding (admin-only endpoint).
     const onboardings = await OnboardingModel.find({ agentId: agent.userId }).sort({ createdAt: -1 }).limit(100);
     return res.json({
       role: 'agent',
@@ -325,6 +344,7 @@ async function getUserDetail(req, res) {
         ownerName: o.ownerName ?? null,
         vendorPhone: o.vendorPhone,
         area: o.area ?? null,
+        aadhaarNumber: o.aadhaarNumber ?? null,
         aadhaarNumberMasked: o.aadhaarNumber ? `XXXX XXXX ${String(o.aadhaarNumber).slice(-4)}` : null,
         aadhaarName: o.aadhaarName ?? null,
         panNumber: o.panNumber ?? null,
