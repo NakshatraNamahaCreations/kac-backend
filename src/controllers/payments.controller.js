@@ -3,15 +3,19 @@ const { createOrder, verifyPaymentSignature, razorpayConfigured } = require('../
 const { fail } = require('../lib/httpError');
 const { VendorPlanModel } = require('../models/VendorPlan');
 const { AgentPlanModel, SINGLETON_ID: AGENT_PLAN_ID } = require('../models/AgentPlan');
+const { getOrCreateAddServicePlan } = require('./addServicePlan.controller');
 const { PaymentModel } = require('../models/Payment');
 const { VendorModel } = require('../models/Vendor');
 const { normalizePhone } = require('../lib/phone');
 const { creditWalletCoins } = require('./wallet.controller');
 const { creditCustomerCoins } = require('./customerWallet.controller');
 
-// ₹399 + ₹9 flat GST = ₹408 (40800 paise) for adding a service to an
-// existing vendor. Mirrors AddServiceScreen.jsx — keep in sync if it changes.
-const VENDOR_ADDITIONAL_PAISE = 40800;
+// Adding a service to an existing vendor: admin-managed base + flat GST
+// (AddServicePlan), the same record the app's fee card reads.
+async function vendorAdditionalAmountPaise() {
+  const plan = await getOrCreateAddServicePlan();
+  return plan.baseFeePaise + plan.gstPaise;
+}
 
 // Agent membership uses a flat ₹9 GST (not the 18% vendor plans use) —
 // basePaise is admin-managed (see AgentPlan model / agentPlan.controller.js)
@@ -70,7 +74,7 @@ const vendorOrderSchema = z.object({
 async function createVendorOrder(req, res) {
   const body = vendorOrderSchema.parse(req.body);
   const isAddService = body.purpose === 'ADDITIONAL_SERVICE';
-  const amountPaise = isAddService ? VENDOR_ADDITIONAL_PAISE : await vendorInitialAmountPaise(body.plan);
+  const amountPaise = isAddService ? await vendorAdditionalAmountPaise() : await vendorInitialAmountPaise(body.plan);
   const order = await createOrder(amountPaise, `vendor_${String(req.user._id)}_${body.purpose ?? 'INITIAL_REGISTRATION'}`);
   await recordOrder(
     req.user._id,

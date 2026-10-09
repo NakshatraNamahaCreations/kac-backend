@@ -42,6 +42,7 @@ const {
   updateCategory,
 } = require('../controllers/categoriesAdmin.controller');
 const { getAgentPlanAdmin, updateAgentPlan } = require('../controllers/agentPlan.controller');
+const { getAddServicePlan, updateAddServicePlan } = require('../controllers/addServicePlan.controller');
 const {
   getIntroVideoAdmin,
   updateIntroVideo,
@@ -91,6 +92,8 @@ adminRouter.patch('/admin/categories/:id', asyncHandler(updateCategory));
 adminRouter.delete('/admin/categories/:id', asyncHandler(deleteCategory));
 adminRouter.get('/admin/agent-plan', asyncHandler(getAgentPlanAdmin));
 adminRouter.patch('/admin/agent-plan', asyncHandler(updateAgentPlan));
+adminRouter.get('/admin/add-service-plan', asyncHandler(getAddServicePlan));
+adminRouter.patch('/admin/add-service-plan', asyncHandler(updateAddServicePlan));
 adminRouter.get('/admin/intro-video', asyncHandler(getIntroVideoAdmin));
 adminRouter.patch('/admin/intro-video', asyncHandler(updateIntroVideo));
 adminRouter.post('/admin/intro-video/file', uploadIntroVideoMiddleware, asyncHandler(uploadIntroVideoFile));
