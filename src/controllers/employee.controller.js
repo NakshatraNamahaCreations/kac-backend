@@ -1,5 +1,10 @@
 const { z } = require('zod');
-const { EmployeeModel, EmployeeReferralModel, EmployeeVerificationSeedModel } = require('../models/Employee');
+const {
+  EmployeeModel,
+  EmployeeReferralModel,
+  EmployeeVerificationSeedModel,
+  dailyTargetsOf,
+} = require('../models/Employee');
 const { fail } = require('../lib/httpError');
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { resolveDateRange } = require('../lib/dateRange');
@@ -136,7 +141,8 @@ async function getEmployeeDashboard(req, res) {
       customerDownloads: todayBreakdown.customer,
       vendorDownloads: todayBreakdown.vendor,
       agentDownloads: todayBreakdown.agent,
-      target: employee.dailyTarget,
+      target: dailyTargetsOf(employee).total,
+      targets: dailyTargetsOf(employee),
     },
     monthly,
   });
@@ -167,7 +173,9 @@ async function getEmployeeStats(req, res) {
     range: { preset: range.preset, from: range.from.toISOString(), to: range.to.toISOString(), label: range.label },
     downloads: breakdown,
     registrations: breakdown,
-    ...(preset === 'today' ? { target: employee.dailyTarget } : {}),
+    ...(preset === 'today'
+      ? { target: dailyTargetsOf(employee).total, targets: dailyTargetsOf(employee) }
+      : {}),
   });
 }
 

@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const { UserModel } = require('../models/User');
 const { VendorModel } = require('../models/Vendor');
 const { AgentModel, effectiveAgentStatus } = require('../models/Agent');
-const { EmployeeModel } = require('../models/Employee');
+const { EmployeeModel, EmployeeReferralModel, setDailyTargets, dailyTargetsOf } = require('../models/Employee');
 const { BookingModel } = require('../models/Booking');
 const { OnboardingModel } = require('../models/Onboarding');
 const { CategoryModel } = require('../models/Category');
@@ -363,7 +363,26 @@ async function getUserDetail(req, res) {
     const employee = await EmployeeModel.findById(id).populate('userId', 'name phone address');
     if (!employee) fail(404, 'NOT_FOUND', 'Employee not found.');
     const { userId, ...rest } = employee.toJSON();
-    return res.json({ role: 'employee', ...rest, name: userId?.name, phone: userId?.phone, address: userId?.address });
+    // Today's registrations per role, shown against the daily targets.
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayRows = await EmployeeReferralModel.aggregate([
+      { $match: { employeeId: employee._id, createdAt: { $gte: todayStart } } },
+      { $group: { _id: '$role', count: { $sum: 1 } } },
+    ]);
+    const today = { customer: 0, vendor: 0, agent: 0 };
+    todayRows.forEach((r) => {
+      if (r._id in today) today[r._id] = r.count;
+    });
+    return res.json({
+      role: 'employee',
+      ...rest,
+      dailyTargets: dailyTargetsOf(employee),
+      todayRegistrations: today,
+      name: userId?.name,
+      phone: userId?.phone,
+      address: userId?.address,
+    });
   }
 
   const user = await UserModel.findById(id).select('-pushTokens');
@@ -449,6 +468,13 @@ const createUserSchema = z.object({
   area: z.string().optional(),
   categoryId: z.string().optional(),
   dailyTarget: z.number().int().nonnegative().optional(),
+  dailyTargets: z
+    .object({
+      customer: z.number().int().nonnegative(),
+      vendor: z.number().int().nonnegative(),
+      agent: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 
 // Admin-direct-create: unlike the mobile app's own registration flows (which
@@ -523,13 +549,15 @@ async function createUser(req, res) {
     let employee = await EmployeeModel.findOne({ userId: user._id });
     if (!employee) {
       const employeeId = await nextEmployeeId();
-      employee = await EmployeeModel.create({
+      employee = new EmployeeModel({
         userId: user._id,
         employeeId,
         referralCode: `GK-EMP-${employeeId.replace(/^EMP-/, '')}`,
         areaAssigned: body.area,
         dailyTarget: body.dailyTarget ?? 0,
       });
+      if (body.dailyTargets) setDailyTargets(employee, body.dailyTargets);
+      await employee.save();
     }
     result.referralCode = employee.referralCode;
     result.employeeId = employee.employeeId;

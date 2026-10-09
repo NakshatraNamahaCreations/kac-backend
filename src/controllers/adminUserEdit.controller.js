@@ -5,7 +5,7 @@ const { VendorModel } = require('../models/Vendor');
 const { VendorPlanModel } = require('../models/VendorPlan');
 const { CategoryModel } = require('../models/Category');
 const { AgentModel } = require('../models/Agent');
-const { EmployeeModel } = require('../models/Employee');
+const { EmployeeModel, setDailyTargets } = require('../models/Employee');
 const { RefreshTokenModel } = require('../models/RefreshToken');
 const { LedgerEntryModel } = require('../models/LedgerEntry');
 const { normalizePhone } = require('../lib/phone');
@@ -105,6 +105,13 @@ const editSchemas = {
     address: text(300),
     areaAssigned: z.string().trim().min(1).max(160).optional(),
     dailyTarget: z.number().int().min(0).max(100000).optional(),
+    dailyTargets: z
+      .object({
+        customer: z.number().int().min(0).max(100000),
+        vendor: z.number().int().min(0).max(100000),
+        agent: z.number().int().min(0).max(100000),
+      })
+      .optional(),
   }),
 };
 
@@ -268,6 +275,7 @@ async function updateUserAdmin(req, res) {
   if (!employee) fail(404, 'NOT_FOUND', 'Employee not found.');
   await changePhone(employee.userId, body.phone);
   Object.assign(employee, pick(body, ['areaAssigned', 'dailyTarget']));
+  if (body.dailyTargets) setDailyTargets(employee, body.dailyTargets);
   await employee.save();
   await UserModel.updateOne({ _id: employee.userId }, { $set: pick(body, ['name', 'address']) });
   return res.json({ ok: true });
