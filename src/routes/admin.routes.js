@@ -17,6 +17,7 @@ const {
 const { createUploadAdmin, getUploadAdmin } = require('../controllers/uploads.controller');
 const { listPayments, deletePayment } = require('../controllers/adminPayments.controller');
 const { getRoleStats } = require('../controllers/adminRoleStats.controller');
+const { listWithdrawals, resolveWithdrawal } = require('../controllers/adminWithdrawals.controller');
 const {
   adjustWalletAdmin,
   deleteUserAdmin,
@@ -75,6 +76,8 @@ adminRouter.get('/admin/bookings', asyncHandler(listBookings));
 adminRouter.delete('/admin/bookings/:id', asyncHandler(deleteBooking));
 adminRouter.get('/admin/payments', asyncHandler(listPayments));
 adminRouter.delete('/admin/payments/:id', asyncHandler(deletePayment));
+adminRouter.get('/admin/withdrawals', asyncHandler(listWithdrawals));
+adminRouter.patch('/admin/withdrawals/:id', asyncHandler(resolveWithdrawal));
 adminRouter.get('/admin/wallets', asyncHandler(listWallets));
 adminRouter.get('/admin/wallets/:userId/ledger', asyncHandler(getWalletLedger));
 adminRouter.post('/admin/wallets/:userId/adjust', asyncHandler(adjustWalletAdmin));

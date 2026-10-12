@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { AgentModel } = require('../models/Agent');
 const { LedgerEntryModel } = require('../models/LedgerEntry');
+const { WithdrawalModel } = require('../models/Withdrawal');
 const { fail } = require('../lib/httpError');
 const { buildPage, parseCursor } = require('../lib/pagination');
 const { agentReferralCode } = require('../lib/referralCode');
@@ -64,30 +65,61 @@ async function addBankAccount(req, res) {
   res.status(201).json({ bankAccount: created.toJSON() });
 }
 
-const withdrawSchema = z.object({ amountCoins: z.number().positive(), bankId: z.string() });
+const withdrawSchema = z.object({ amountCoins: z.number().int().positive(), bankId: z.string() });
 
+// Same limits the app shows (src/lib/money.js): ₹250 always stays in the
+// wallet, and one withdrawal is at least ₹250.
+const WALLET_RESERVE_COINS = 250;
+const WITHDRAW_MIN_COINS = 250;
+
+// Payouts are manual (admin panel > Withdrawals): the coins are held here,
+// then an admin transfers the money and marks it paid, or rejects it and
+// the coins come back (adminWithdrawals.controller.js).
 async function withdraw(req, res) {
   const body = withdrawSchema.parse(req.body);
   const agent = await requireOwnAgent(req.user._id);
-  if (!agent.bankAccounts.id(body.bankId)) fail(404, 'BANK_NOT_FOUND', 'Bank account not found.');
-  if (body.amountCoins <= 0 || body.amountCoins > agent.walletCoins) {
-    fail(400, 'INVALID_AMOUNT', 'Withdrawal amount is invalid.');
+  const bank = agent.bankAccounts.id(body.bankId);
+  if (!bank) fail(404, 'BANK_NOT_FOUND', 'Bank account not found.');
+  if (body.amountCoins < WITHDRAW_MIN_COINS) {
+    fail(400, 'INVALID_AMOUNT', `The minimum withdrawal is ₹${WITHDRAW_MIN_COINS}.`);
+  }
+  if (body.amountCoins > agent.walletCoins - WALLET_RESERVE_COINS) {
+    fail(400, 'INVALID_AMOUNT', `₹${WALLET_RESERVE_COINS} must stay in your wallet. Enter a smaller amount.`);
   }
   agent.walletCoins -= body.amountCoins;
   await agent.save();
 
+  const withdrawal = await WithdrawalModel.create({
+    userId: req.user._id,
+    amountCoins: body.amountCoins,
+    bank: {
+      accountHolder: bank.accountHolder,
+      accountNumberMasked: bank.accountNumberMasked,
+      accountNumberEnc: bank.accountNumberEnc ?? null,
+      ifsc: bank.ifsc,
+    },
+  });
   const entry = await LedgerEntryModel.create({
     pool: 'agent',
     ownerId: req.user._id,
     kind: 'debit',
     coins: body.amountCoins,
     balance: agent.walletCoins,
-    description: 'Withdrawal request',
+    description: 'Withdrawal requested · awaiting admin payout',
+    withdrawalId: String(withdrawal._id),
   });
-  entry.withdrawalId = String(entry._id);
-  await entry.save();
+  withdrawal.ledgerEntryId = entry._id;
+  await withdrawal.save();
 
-  res.status(201).json({ withdrawalId: entry.withdrawalId, status: 'REQUESTED' });
+  res.status(201).json({ withdrawalId: String(withdrawal._id), status: 'REQUESTED' });
+}
+
+// The signed-in vendor / agent's own withdrawals, newest first, so the app
+// can show whether each one is still pending, paid (with the bank ref) or
+// rejected (with the reason).
+async function listMyWithdrawals(req, res) {
+  const rows = await WithdrawalModel.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(50);
+  res.json({ data: rows.map((w) => w.toJSON()) });
 }
 
 // Credits a verified Razorpay wallet-recharge payment (called from
@@ -140,6 +172,7 @@ module.exports = {
   getWallet,
   getWalletLedger,
   addBankAccount,
+  listMyWithdrawals,
   withdraw,
   recharge,
   creditWalletCoins,

@@ -1,7 +1,14 @@
 const { Router } = require('express');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { addBankAccount, getWallet, getWalletLedger, recharge, withdraw } = require('../controllers/wallet.controller');
+const {
+  addBankAccount,
+  getWallet,
+  getWalletLedger,
+  listMyWithdrawals,
+  recharge,
+  withdraw,
+} = require('../controllers/wallet.controller');
 const {
   getWallet: getCustomerWallet,
   getWalletLedger: getCustomerWalletLedger,
@@ -21,6 +28,7 @@ walletRouter.get('/wallet', requireRole('agent', 'vendor'), asyncHandler(getWall
 walletRouter.get('/wallet/ledger', requireRole('agent', 'vendor'), asyncHandler(getWalletLedger));
 walletRouter.post('/wallet/bank-accounts', requireRole('agent', 'vendor'), asyncHandler(addBankAccount));
 walletRouter.post('/wallet/withdraw', requireRole('agent', 'vendor'), asyncHandler(withdraw));
+walletRouter.get('/wallet/withdrawals', requireRole('agent', 'vendor'), asyncHandler(listMyWithdrawals));
 walletRouter.post('/wallet/recharge', requireRole('agent', 'vendor'), asyncHandler(recharge));
 
 walletRouter.get('/wallet/customer', asyncHandler(getCustomerWallet));
