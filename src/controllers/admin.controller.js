@@ -4,7 +4,9 @@ const { UserModel } = require('../models/User');
 const { VendorModel } = require('../models/Vendor');
 const { AgentModel, effectiveAgentStatus } = require('../models/Agent');
 const { EmployeeModel, EmployeeReferralModel, setDailyTargets, dailyTargetsOf } = require('../models/Employee');
+const { isValidObjectId } = require('mongoose');
 const { BookingModel } = require('../models/Booking');
+const { MessageModel } = require('../models/Message');
 const { OnboardingModel } = require('../models/Onboarding');
 const { CategoryModel } = require('../models/Category');
 const { AdminModel } = require('../models/Admin');
@@ -605,6 +607,16 @@ async function listBookings(req, res) {
   res.json(buildPage(data, skip, limit, total));
 }
 
+// Removes a booking and its chat messages. Reviews are kept so vendor
+// ratings don't silently change.
+async function deleteBooking(req, res) {
+  if (!isValidObjectId(req.params.id)) fail(404, 'NOT_FOUND', 'Booking not found.');
+  const booking = await BookingModel.findByIdAndDelete(req.params.id);
+  if (!booking) fail(404, 'NOT_FOUND', 'Booking not found.');
+  await MessageModel.deleteMany({ bookingId: booking._id });
+  res.json({ ok: true });
+}
+
 module.exports = {
   adminLogin,
   adminSetup,
@@ -616,4 +628,5 @@ module.exports = {
   updateAgentVerification,
   createUser,
   listBookings,
+  deleteBooking,
 };

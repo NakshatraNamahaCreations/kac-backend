@@ -9,6 +9,7 @@ const {
   getStats,
   getUserDetail,
   listBookings,
+  deleteBooking,
   listUsers,
   updateAgentVerification,
   updateVendorVerification,
@@ -69,6 +70,7 @@ adminRouter.delete('/admin/users/:role/:id', asyncHandler(deleteUserAdmin));
 adminRouter.patch('/admin/users/vendor/:id/verify', asyncHandler(updateVendorVerification));
 adminRouter.patch('/admin/users/agent/:id/verify', asyncHandler(updateAgentVerification));
 adminRouter.get('/admin/bookings', asyncHandler(listBookings));
+adminRouter.delete('/admin/bookings/:id', asyncHandler(deleteBooking));
 adminRouter.get('/admin/payments', asyncHandler(listPayments));
 adminRouter.delete('/admin/payments/:id', asyncHandler(deletePayment));
 adminRouter.get('/admin/wallets', asyncHandler(listWallets));
