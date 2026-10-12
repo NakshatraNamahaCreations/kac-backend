@@ -18,6 +18,7 @@ const { customerReferralCode, vendorReferralCode, agentReferralCode } = require(
 const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
 const { decryptAadhaar, decryptSecret } = require('../lib/aadhaarVault');
+const { referredByForUser } = require('../lib/referredBy');
 
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -306,6 +307,7 @@ async function getUserDetail(req, res) {
       role: 'vendor',
       ...json,
       kyc: { ...(json.kyc ?? {}), aadhaarNumber },
+      referredBy: await referredByForUser({ _id: vendor.userId, phone: vendor.phone }),
       bank: json.bank ? { ...json.bank, accountNumber: decryptSecret(vendor.bank?.accountNumberEnc) } : json.bank,
       categoryNames: (vendor.categories ?? []).map((c) => nameById.get(String(c)) ?? c),
       walletCoins: wallet?.walletCoins ?? 0,
@@ -331,6 +333,7 @@ async function getUserDetail(req, res) {
       userId: userId?._id ? String(userId._id) : null,
       verificationStatus: effectiveAgentStatus(agent),
       verified: effectiveAgentStatus(agent) === 'ACTIVE',
+      referredBy: await referredByForUser({ _id: agent.userId, phone: userId?.phone }),
       name: userId?.name,
       phone: userId?.phone,
       area: rest.area ?? userId?.area,
@@ -395,6 +398,7 @@ async function getUserDetail(req, res) {
     ...user.toJSON(),
     referralCode: user.referralCode || customerReferralCode(String(user._id)),
     referralCodes: codes,
+    referredBy: await referredByForUser(user),
   });
 }
 
