@@ -131,7 +131,8 @@ async function getStats(_req, res) {
   const [customers, vendors, agents, employees, bookingsByStatus, allBookings] = await Promise.all([
     UserModel.countDocuments({ roles: 'customer' }),
     VendorModel.countDocuments(),
-    AgentModel.countDocuments(),
+    // Registered agents only — vendors also hold a wallet-only Agent doc.
+    UserModel.countDocuments({ roles: 'agent' }),
     EmployeeModel.countDocuments(),
     BookingModel.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
     // Only createdAt is needed for the trend below — avoid pulling full

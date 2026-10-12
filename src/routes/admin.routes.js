@@ -16,6 +16,7 @@ const {
 } = require('../controllers/admin.controller');
 const { createUploadAdmin, getUploadAdmin } = require('../controllers/uploads.controller');
 const { listPayments, deletePayment } = require('../controllers/adminPayments.controller');
+const { getRoleStats } = require('../controllers/adminRoleStats.controller');
 const {
   adjustWalletAdmin,
   deleteUserAdmin,
@@ -62,6 +63,7 @@ adminRouter.post('/admin/change-password', asyncHandler(adminChangePassword));
 
 adminRouter.use('/admin', requireAdminAuth);
 adminRouter.get('/admin/stats', asyncHandler(getStats));
+adminRouter.get('/admin/stats/:role', asyncHandler(getRoleStats));
 adminRouter.get('/admin/users', asyncHandler(listUsers));
 adminRouter.get('/admin/users/:role/:id', asyncHandler(getUserDetail));
 adminRouter.post('/admin/users', asyncHandler(createUser));
