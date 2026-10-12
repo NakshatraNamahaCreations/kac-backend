@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { AgentModel } = require('../models/Agent');
+const { VendorModel } = require('../models/Vendor');
 const { LedgerEntryModel } = require('../models/LedgerEntry');
 const { WithdrawalModel } = require('../models/Withdrawal');
 const { fail } = require('../lib/httpError');
@@ -21,8 +22,39 @@ async function requireOwnAgent(userId) {
   return agent;
 }
 
+// A vendor's payout bank is saved on their vendor profile (Vendor.bank, set
+// at registration / Edit profile), not in the wallet's bankAccounts — so the
+// Withdraw screen had no account to pick. Mirror it into the wallet: add it
+// when missing, keep it up to date when the vendor changes it.
+async function syncVendorBank(agent, userId) {
+  const vendor = await VendorModel.findOne({ userId }, 'bank');
+  const vb = vendor?.bank;
+  if (!vb?.accountNumberMasked || !vb.ifsc || !vb.accountHolder) return;
+  const existing = agent.bankAccounts.find((b) => b.fromVendorProfile);
+  const fields = {
+    accountHolder: vb.accountHolder,
+    accountNumberMasked: vb.accountNumberMasked,
+    accountNumberEnc: vb.accountNumberEnc ?? null,
+    ifsc: vb.ifsc,
+  };
+  if (existing) {
+    const same = Object.entries(fields).every(([k, v]) => (existing[k] ?? null) === v);
+    if (same) return;
+    Object.assign(existing, fields);
+  } else {
+    // Same account already added by hand in the wallet — don't duplicate it.
+    const dup = agent.bankAccounts.find(
+      (b) => b.ifsc === vb.ifsc && b.accountNumberMasked === vb.accountNumberMasked,
+    );
+    if (dup) return;
+    agent.bankAccounts.unshift({ ...fields, fromVendorProfile: true });
+  }
+  await agent.save();
+}
+
 async function getWallet(req, res) {
   const agent = await requireOwnAgent(req.user._id);
+  await syncVendorBank(agent, req.user._id);
   const [total, ledger] = await Promise.all([
     LedgerEntryModel.countDocuments({ ownerId: req.user._id, pool: { $ne: 'customer' } }),
     LedgerEntryModel.find({ ownerId: req.user._id, pool: { $ne: 'customer' } }).sort({ createdAt: -1 }).limit(10),
@@ -78,6 +110,7 @@ const WITHDRAW_MIN_COINS = 250;
 async function withdraw(req, res) {
   const body = withdrawSchema.parse(req.body);
   const agent = await requireOwnAgent(req.user._id);
+  await syncVendorBank(agent, req.user._id);
   const bank = agent.bankAccounts.id(body.bankId);
   if (!bank) fail(404, 'BANK_NOT_FOUND', 'Bank account not found.');
   if (body.amountCoins < WITHDRAW_MIN_COINS) {

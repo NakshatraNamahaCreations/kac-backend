@@ -8,6 +8,9 @@ const bankAccountSchema = new Schema(
     // Full number, AES-256-GCM encrypted (lib/aadhaarVault.js). Admin only.
     accountNumberEnc: { type: String, default: null },
     ifsc: { type: String, required: true },
+    // Mirrored from the vendor profile's bank (wallet.controller.js
+    // syncVendorBank) rather than added in the wallet.
+    fromVendorProfile: { type: Boolean, default: false },
   },
   { _id: true },
 );
