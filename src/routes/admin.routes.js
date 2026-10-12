@@ -14,7 +14,7 @@ const {
   updateVendorVerification,
 } = require('../controllers/admin.controller');
 const { createUploadAdmin, getUploadAdmin } = require('../controllers/uploads.controller');
-const { listPayments } = require('../controllers/adminPayments.controller');
+const { listPayments, deletePayment } = require('../controllers/adminPayments.controller');
 const {
   adjustWalletAdmin,
   deleteUserAdmin,
@@ -70,6 +70,7 @@ adminRouter.patch('/admin/users/vendor/:id/verify', asyncHandler(updateVendorVer
 adminRouter.patch('/admin/users/agent/:id/verify', asyncHandler(updateAgentVerification));
 adminRouter.get('/admin/bookings', asyncHandler(listBookings));
 adminRouter.get('/admin/payments', asyncHandler(listPayments));
+adminRouter.delete('/admin/payments/:id', asyncHandler(deletePayment));
 adminRouter.get('/admin/wallets', asyncHandler(listWallets));
 adminRouter.get('/admin/wallets/:userId/ledger', asyncHandler(getWalletLedger));
 adminRouter.post('/admin/wallets/:userId/adjust', asyncHandler(adjustWalletAdmin));

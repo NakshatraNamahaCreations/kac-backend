@@ -1,4 +1,6 @@
+const { isValidObjectId } = require('mongoose');
 const { PaymentModel, PAYMENT_PURPOSES } = require('../models/Payment');
+const { fail } = require('../lib/httpError');
 const { UserModel } = require('../models/User');
 const { VendorModel } = require('../models/Vendor');
 const { VendorPlanModel } = require('../models/VendorPlan');
@@ -152,4 +154,14 @@ async function listPayments(req, res) {
   res.json({ ...page, total, ...(summary ? { summary } : {}) });
 }
 
-module.exports = { listPayments };
+// Removes one payment record from the report. Only the record goes —
+// coins already credited by a recharge stay, and a paid-but-unused
+// registration fee can no longer be used by that person.
+async function deletePayment(req, res) {
+  if (!isValidObjectId(req.params.id)) fail(404, 'NOT_FOUND', 'Payment not found.');
+  const deleted = await PaymentModel.findByIdAndDelete(req.params.id);
+  if (!deleted) fail(404, 'NOT_FOUND', 'Payment not found.');
+  res.json({ ok: true });
+}
+
+module.exports = { listPayments, deletePayment };
