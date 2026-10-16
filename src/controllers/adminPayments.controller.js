@@ -6,6 +6,7 @@ const { VendorModel } = require('../models/Vendor');
 const { VendorPlanModel } = require('../models/VendorPlan');
 const { OnboardingModel } = require('../models/Onboarding');
 const { buildPage, parseCursor } = require('../lib/pagination');
+const { sourceFilter, referralByPayment } = require('../lib/paymentReferralSource');
 
 const PAGE_LIMIT = 25;
 // Upper bound for the admin's CSV export — one request, no paging.
@@ -48,6 +49,12 @@ async function buildFilter(query) {
       { razorpayPaymentId: re },
     ];
   }
+  // "By referral" filters (Emp-Ven, Ven-Age, Age-Age… registrations, customer
+  // coin recharge). Under $and so it never clashes with the search $or.
+  if (typeof query.source === 'string' && query.source) {
+    const sf = await sourceFilter(query.source);
+    if (sf) filter.$and = [...(filter.$and ?? []), sf];
+  }
   return filter;
 }
 
@@ -71,6 +78,7 @@ async function enrich(payments) {
   const vendorByUser = new Map(vendors.map((v) => [String(v.userId), v]));
   const onboardingByPayment = new Map(onboardings.map((o) => [String(o.prepaidPaymentId), o]));
   const planLabel = new Map(plans.map((p) => [p.tier, p.label]));
+  const referralOf = await referralByPayment(payments, userById);
 
   return payments.map((p) => {
     const user = userById.get(String(p.userId));
@@ -94,6 +102,8 @@ async function enrich(payments) {
         ? { id: String(user._id), name: user.name ?? null, phone: user.phone, roles: user.roles }
         : { id: String(p.userId), name: null, phone: null, roles: [] },
       vendor: isVendorFee && vendor ? { name: vendor.name, personName: vendor.personName ?? null } : null,
+      // Who referred this registration: { type: employee|vendor|agent, name, code }.
+      referral: referralOf.get(String(p._id)) ?? null,
       onboarded:
         p.purpose === 'VENDOR_ONBOARDING'
           ? {

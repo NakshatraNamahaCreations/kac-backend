@@ -20,6 +20,7 @@ const { io } = require('../realtime/socket');
 const { aadhaarFields, decryptAadhaar, decryptSecret } = require('../lib/aadhaarVault');
 const { referredByForUser } = require('../lib/referredBy');
 const { fullAddress } = require('../lib/fullAddress');
+const { customerSourceFilter, customerSourceByUser } = require('../lib/customerReferralSource');
 
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -257,11 +258,18 @@ async function listUsers(req, res) {
   const filter = {};
   if (role === 'customer') filter.roles = 'customer';
   if (searchRe) filter.$or = [{ name: searchRe }, { phone: searchRe }];
+  // Customers tab "Referred by" filter: employee | vendor | agent | customer | none.
+  const referredBy = role === 'customer' && typeof req.query.referredBy === 'string' ? req.query.referredBy : '';
+  if (referredBy) {
+    const sf = await customerSourceFilter(referredBy);
+    if (sf) Object.assign(filter, sf);
+  }
   const [total, users] = await Promise.all([
     UserModel.countDocuments(filter),
     UserModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
   ]);
   const codesByUser = await referralCodesByUser(users);
+  const sourceByUser = role === 'customer' ? await customerSourceByUser() : new Map();
   const data = users.map((u) => ({
     id: u.id,
     name: u.name,
@@ -273,6 +281,8 @@ async function listUsers(req, res) {
     referralCodes: codesByUser.get(String(u._id)) ?? [],
     walletCoins: u.walletCoins,
     joinedAt: u.createdAt,
+    // Customers tab: who referred their signup (employee/vendor/agent/customer), or null.
+    ...(role === 'customer' ? { referredByType: sourceByUser.get(String(u._id)) ?? null } : {}),
   }));
   res.json(buildPage(data, skip, limit, total));
 }
