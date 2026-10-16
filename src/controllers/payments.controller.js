@@ -7,35 +7,24 @@ const { getOrCreateAddServicePlan } = require('./addServicePlan.controller');
 const { PaymentModel } = require('../models/Payment');
 const { VendorModel } = require('../models/Vendor');
 const { normalizePhone } = require('../lib/phone');
+const { totalWithGstPaise } = require('../lib/gst');
 const { creditWalletCoins } = require('./wallet.controller');
 const { creditCustomerCoins } = require('./customerWallet.controller');
 
-// Adding a service to an existing vendor: admin-managed base + flat GST
-// (AddServicePlan), the same record the app's fee card reads.
+// Every fee is the admin-managed base + 18% GST (lib/gst.js), read from the
+// SAME records the app renders its fee cards from, so the price shown can't
+// drift from what Razorpay charges (RazorpayCheckout rejects a mismatch).
+
+// Adding a service to an existing vendor (AddServicePlan).
 async function vendorAdditionalAmountPaise() {
   const plan = await getOrCreateAddServicePlan();
-  return plan.baseFeePaise + plan.gstPaise;
+  return totalWithGstPaise(plan.baseFeePaise);
 }
 
-// Agent membership uses a flat ₹9 GST (not the 18% vendor plans use) —
-// basePaise is admin-managed (see AgentPlan model / agentPlan.controller.js)
-// and read from the SAME collection AgentRegisterMembershipScreen.jsx
-// fetches to render the fee card, so an admin price edit can't drift out of
-// sync with what Razorpay actually charges.
-const AGENT_GST_PAISE = 900;
 // Only used if the AgentPlan singleton is somehow missing — a last-resort
 // so order creation doesn't hard-crash.
 const AGENT_FALLBACK_BASE_PAISE = 49900;
 
-// Initial vendor registration instead scales with the chosen plan (admin-
-// managed — see VendorPlan model / vendorPlan.controller.js, any number of
-// tiers) and uses 18% GST (not the flat ₹9 the other two fees use).
-// basePaise is read from the SAME collection StepPayment.jsx fetches to
-// render the picker — previously this was a separately hardcoded object
-// that had to be kept in sync by hand, which is exactly the kind of drift
-// that makes RazorpayCheckout.open() reject the payment (its `amount` must
-// match what the order was actually created for).
-const GST_RATE_PERCENT = 18;
 // Only used if the VendorPlan collection is completely empty (should never
 // happen post-seed) — a last-resort so order creation doesn't hard-crash.
 const FALLBACK_BASE_PAISE = 49900;
@@ -50,9 +39,7 @@ async function vendorInitialAmountPaise(plan) {
     ? await VendorPlanModel.findOne({ tier: plan })
     : await VendorPlanModel.findOne({}).sort({ sortOrder: 1 });
   if (plan && !planDoc) fail(400, 'INVALID_PLAN', 'Selected plan is no longer available.');
-  const basePaise = planDoc?.baseFeePaise ?? FALLBACK_BASE_PAISE;
-  const gstPaise = Math.round((basePaise * GST_RATE_PERCENT) / 100);
-  return basePaise + gstPaise;
+  return totalWithGstPaise(planDoc?.baseFeePaise ?? FALLBACK_BASE_PAISE);
 }
 
 async function recordOrder(userId, purpose, order, extra = {}) {
@@ -114,7 +101,7 @@ async function createAgentOrder(req, res) {
   agentOrderSchema.parse(req.body ?? {});
   const plan = await AgentPlanModel.findById(AGENT_PLAN_ID);
   const basePaise = plan?.baseFeePaise ?? AGENT_FALLBACK_BASE_PAISE;
-  const amountPaise = basePaise + AGENT_GST_PAISE;
+  const amountPaise = totalWithGstPaise(basePaise);
   const order = await createOrder(amountPaise, `agent_${String(req.user._id)}`);
   await recordOrder(req.user._id, 'AGENT_MEMBERSHIP', order);
   res.status(201).json(order);

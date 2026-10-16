@@ -281,6 +281,29 @@ async function listUsers(req, res) {
 // id, or User id for customer/all), not always a User id. Kept as a
 // separate on-demand call rather than bloating every listUsers row with
 // full bank/KYC/services payloads that most views never render.
+// Every role record one person holds, keyed by role -> that record's id
+// (the same (role, id) pair getUserDetail takes). Lets the admin detail
+// modal show tabs for all of a person's roles, whichever list it was
+// opened from. 'account' is the User itself (customer data, wallet).
+async function roleRecordsFor(userId) {
+  if (!userId) return {};
+  const [user, vendor, agent, employee] = await Promise.all([
+    UserModel.findById(userId, 'roles'),
+    VendorModel.findOne({ userId }, '_id'),
+    AgentModel.findOne({ userId }, '_id'),
+    EmployeeModel.findOne({ userId }, '_id'),
+  ]);
+  if (!user) return {};
+  const roles = user.roles ?? [];
+  return {
+    account: String(user._id),
+    ...(vendor && roles.includes('vendor') ? { vendor: String(vendor._id) } : {}),
+    // Vendors also hold a wallet-only Agent doc — only real agents count.
+    ...(agent && roles.includes('agent') ? { agent: String(agent._id) } : {}),
+    ...(employee && roles.includes('employee') ? { employee: String(employee._id) } : {}),
+  };
+}
+
 async function getUserDetail(req, res) {
   const { role, id } = req.params;
 
@@ -309,6 +332,7 @@ async function getUserDetail(req, res) {
       ...json,
       kyc: { ...(json.kyc ?? {}), aadhaarNumber },
       referredBy: await referredByForUser({ _id: vendor.userId, phone: vendor.phone }),
+      roleRecords: await roleRecordsFor(vendor.userId),
       bank: json.bank ? { ...json.bank, accountNumber: decryptSecret(vendor.bank?.accountNumberEnc) } : json.bank,
       categoryNames: (vendor.categories ?? []).map((c) => nameById.get(String(c)) ?? c),
       walletCoins: wallet?.walletCoins ?? 0,
@@ -335,6 +359,9 @@ async function getUserDetail(req, res) {
       verificationStatus: effectiveAgentStatus(agent),
       verified: effectiveAgentStatus(agent) === 'ACTIVE',
       referredBy: await referredByForUser({ _id: agent.userId, phone: userId?.phone }),
+      roleRecords: await roleRecordsFor(agent.userId),
+      // The agent's own code (GK-AGT-…) — shown as their referral code.
+      referralCode: agent.executiveCode,
       name: userId?.name,
       phone: userId?.phone,
       area: rest.area ?? userId?.area,
@@ -385,6 +412,7 @@ async function getUserDetail(req, res) {
       ...rest,
       dailyTargets: dailyTargetsOf(employee),
       todayRegistrations: today,
+      roleRecords: await roleRecordsFor(employee.userId?._id ?? employee.userId),
       name: userId?.name,
       phone: userId?.phone,
       address: userId?.address,
@@ -400,6 +428,7 @@ async function getUserDetail(req, res) {
     referralCode: user.referralCode || customerReferralCode(String(user._id)),
     referralCodes: codes,
     referredBy: await referredByForUser(user),
+    roleRecords: await roleRecordsFor(user._id),
   });
 }
 

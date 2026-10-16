@@ -5,15 +5,15 @@ const { applyIdTransform } = require('./plugins');
 // add another service category (Profile > Services > Add service). Admin-
 // managed so the price can change without an app release; read by both the
 // app's fee card and payments.controller.js's order amount, so the two can
-// never drift apart. GST is a flat amount here (not a %), matching how this
-// fee has always been charged (₹399 + ₹9).
+// never drift apart. GST is 18% of the base fee (lib/gst.js).
 const SINGLETON_ID = 'add_service_plan';
 
 const addServicePlanSchema = new Schema(
   {
     _id: { type: String, default: SINGLETON_ID },
     baseFeePaise: { type: Number, required: true, min: 0 },
-    gstPaise: { type: Number, required: true, min: 0 },
+    // Legacy flat GST (₹9) — no longer used; GST is 18% of baseFeePaise.
+    gstPaise: { type: Number, default: null },
     bullets: { type: [String], default: [] },
   },
   { timestamps: true },
