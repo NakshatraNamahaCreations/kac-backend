@@ -10,7 +10,7 @@ const { newJti, signAccessToken, signRefreshToken, verifyRefreshToken } = requir
 const { fail } = require('../lib/httpError');
 const { detectReferralKind, customerReferralCode } = require('../lib/referralCode');
 const { creditCustomerWelcomeBonus } = require('./customerWallet.controller');
-const { creditCustomerReferrer } = require('./customerReferral.controller');
+const { creditCustomerReferrer, creditAgentForCustomerReferral } = require('./customerReferral.controller');
 const { creditVendorReferrer } = require('./vendorReferral.controller');
 const { publicUrlForOwnedKey } = require('./uploads.controller');
 const { env } = require('../config/env');
@@ -227,6 +227,8 @@ async function addRole(req, res) {
           await creditCustomerReferrer(referralCode, user);
         } else if (kind === 'vendor') {
           await creditVendorReferrer(referralCode, user._id, user.name ?? 'Customer', user.phone, 'customer');
+        } else if (kind === 'agent') {
+          await creditAgentForCustomerReferral(referralCode, user);
         }
       }
     }

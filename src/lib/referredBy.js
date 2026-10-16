@@ -9,7 +9,7 @@ const { customerReferralCode, vendorReferralCode } = require('./referralCode');
 
 // Who referred this person, for the admin panel — one entry per referral
 // that was actually credited, across every referral path:
-//   customer code  -> CustomerReferral (referredId)
+//   customer code / agent code (as customer) -> CustomerReferral (referredId)
 //   vendor code    -> VendorReferral (referredPhone)
 //   employee code  -> EmployeeReferral (userId)
 //   agent code / in-person agent onboarding -> Onboarding (vendorPhone)
@@ -36,7 +36,19 @@ async function referredByForUser(user) {
       'name phone',
     ),
     UserModel.find({ _id: { $in: onboardings.map((o) => o.agentId) } }, 'name phone'),
-    AgentModel.find({ userId: { $in: onboardings.map((o) => o.agentId) } }, 'userId executiveCode'),
+    // Agents whose code was used: in-person onboardings + agent-code
+    // customer referrals (CustomerReferral.referrerRole 'agent').
+    AgentModel.find(
+      {
+        userId: {
+          $in: [
+            ...onboardings.map((o) => o.agentId),
+            ...customerRefs.filter((r) => r.referrerRole === 'agent').map((r) => r.referrerId),
+          ],
+        },
+      },
+      'userId executiveCode',
+    ),
   ]);
   const byId = (docs) => new Map(docs.map((d) => [String(d._id), d]));
   const customerById = byId(customers);
@@ -48,12 +60,17 @@ async function referredByForUser(user) {
   const entries = [
     ...customerRefs.map((r) => {
       const c = customerById.get(String(r.referrerId));
+      const byAgent = r.referrerRole === 'agent';
       return {
         forRole: 'customer',
-        referrerType: 'customer',
+        referrerType: byAgent ? 'agent' : 'customer',
         referrerName: c?.name ?? null,
         referrerPhone: c?.phone ?? null,
-        referrerCode: c ? c.referralCode || customerReferralCode(String(c._id)) : null,
+        referrerCode: byAgent
+          ? codeByAgentUser.get(String(r.referrerId)) ?? null
+          : c
+            ? c.referralCode || customerReferralCode(String(c._id))
+            : null,
         via: 'Referral code',
         coinsEarned: r.coinsEarned,
         at: r.createdAt,

@@ -10,6 +10,10 @@ const customerReferralSchema = new Schema(
     referredName: { type: String, required: true },
     referredPhone: { type: String, required: true },
     coinsEarned: { type: Number, required: true },
+    // Whose code it was: a customer (coins to their customer wallet) or an
+    // agent (coins to their agent wallet). Rows from before this field are
+    // customer referrals.
+    referrerRole: { type: String, enum: ['customer', 'agent'], default: 'customer' },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );
