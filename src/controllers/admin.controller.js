@@ -17,7 +17,7 @@ const { buildPage, parseCursor } = require('../lib/pagination');
 const { customerReferralCode, vendorReferralCode, agentReferralCode } = require('../lib/referralCode');
 const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
-const { decryptAadhaar, decryptSecret } = require('../lib/aadhaarVault');
+const { aadhaarFields, decryptAadhaar, decryptSecret } = require('../lib/aadhaarVault');
 const { referredByForUser } = require('../lib/referredBy');
 const { fullAddress } = require('../lib/fullAddress');
 
@@ -357,7 +357,8 @@ async function getUserDetail(req, res) {
     return res.json({
       role: 'agent',
       ...rest,
-      userId: userId?._id ? String(userId._id) : null,
+      // From the DB doc: the populated user's toJSON() drops _id (id transform).
+      userId: agent.userId?._id ? String(agent.userId._id) : null,
       verificationStatus: effectiveAgentStatus(agent),
       verified: effectiveAgentStatus(agent) === 'ACTIVE',
       referredBy: await referredByForUser({ _id: agent.userId, phone: userId?.phone }),
@@ -414,7 +415,11 @@ async function getUserDetail(req, res) {
       ...rest,
       dailyTargets: dailyTargetsOf(employee),
       todayRegistrations: today,
+      kyc: { ...(rest.kyc ?? {}), aadhaarNumber: decryptAadhaar(employee.kyc?.aadhaarNumberEnc) },
       roleRecords: await roleRecordsFor(employee.userId?._id ?? employee.userId),
+      // The User id — admin photo uploads (KYC) are owned by it.
+      // From the DB doc: the populated user's toJSON() drops _id (id transform).
+      userId: employee.userId?._id ? String(employee.userId._id) : null,
       name: userId?.name,
       phone: userId?.phone,
       address: fullAddress(userId?.address),
@@ -521,6 +526,22 @@ const createUserSchema = z.object({
       agent: z.number().int().nonnegative(),
     })
     .optional(),
+  // Employee creation (admin panel): home address + KYC numbers. Photos are
+  // uploaded right after create (they need the new user as owner) and saved
+  // with PATCH /admin/users/employee/:id.
+  address: z.string().trim().max(300).optional(),
+  kyc: z
+    .object({
+      aadhaarNumber: z.string().trim().regex(/^\d{12}$/, 'Aadhaar must be 12 digits').or(z.literal('')).optional(),
+      aadhaarName: z.string().trim().max(80).optional(),
+      panNumber: z
+        .string()
+        .trim()
+        .regex(/^[A-Za-z]{5}\d{4}[A-Za-z]$/, 'PAN should look like ABCDE1234F')
+        .or(z.literal(''))
+        .optional(),
+    })
+    .optional(),
 });
 
 // Admin-direct-create: unlike the mobile app's own registration flows (which
@@ -549,6 +570,7 @@ async function createUser(req, res) {
   } else if (!user.name) {
     user.name = body.name;
   }
+  if (body.address) user.address = body.address;
 
   const isNewRole = !user.roles.includes(body.role);
   const result = { userId: user.id, name: user.name, phone: user.phone, role: body.role };
@@ -603,6 +625,13 @@ async function createUser(req, res) {
         dailyTarget: body.dailyTarget ?? 0,
       });
       if (body.dailyTargets) setDailyTargets(employee, body.dailyTargets);
+      if (body.kyc) {
+        employee.kyc = {
+          ...(body.kyc.aadhaarNumber ? aadhaarFields(body.kyc.aadhaarNumber) : {}),
+          aadhaarName: body.kyc.aadhaarName || null,
+          panNumber: body.kyc.panNumber ? body.kyc.panNumber.toUpperCase() : null,
+        };
+      }
       await employee.save();
     }
     result.referralCode = employee.referralCode;

@@ -10,6 +10,18 @@ const employeeSchema = new Schema(
     // Total daily registrations target. Kept as the sum of dailyTargets
     // (setDailyTargets) so older app builds that only read `target` still work.
     dailyTarget: { type: Number, default: 0 },
+    // KYC, entered by the admin when creating / editing the employee
+    // (admin panel). Same shape as Agent.kyc: the Aadhaar number is stored
+    // masked + AES-encrypted (lib/aadhaarVault.js); photo keys point at
+    // private Upload rows.
+    kyc: {
+      aadhaarNumberMasked: { type: String, default: null },
+      aadhaarNumberEnc: { type: String, default: null },
+      aadhaarName: { type: String, default: null },
+      aadhaarPhotoKey: { type: String, default: null },
+      panNumber: { type: String, default: null },
+      panPhotoKey: { type: String, default: null },
+    },
     // Per-role daily registration targets, set by the admin.
     dailyTargets: {
       customer: { type: Number, default: 0 },

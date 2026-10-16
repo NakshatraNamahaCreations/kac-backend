@@ -112,6 +112,7 @@ const editSchemas = {
         agent: z.number().int().min(0).max(100000),
       })
       .optional(),
+    kyc: kycSchema,
   }),
 };
 
@@ -273,7 +274,13 @@ async function updateUserAdmin(req, res) {
 
   const employee = await EmployeeModel.findById(id);
   if (!employee) fail(404, 'NOT_FOUND', 'Employee not found.');
+  await assertOwnedUploads(employee.userId, [body.kyc?.aadhaarPhotoKey, body.kyc?.panPhotoKey]);
   await changePhone(employee.userId, body.phone);
+  // Aadhaar / PAN (+ photos) — no GST or owner fields for employees.
+  if (body.kyc) {
+    const { gstNumber: _gst, gstPhotoKey: _gstPhoto, ownerName: _owner, establishedYear: _year, ...kyc } = body.kyc;
+    employee.kyc = applyKyc(employee.kyc, kyc, { withOwner: false });
+  }
   Object.assign(employee, pick(body, ['areaAssigned', 'dailyTarget']));
   if (body.dailyTargets) setDailyTargets(employee, body.dailyTargets);
   await employee.save();
