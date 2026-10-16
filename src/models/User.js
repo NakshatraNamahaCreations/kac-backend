@@ -22,6 +22,9 @@ const userSchema = new Schema(
     address: { type: String, default: null },
     pushTokens: { type: [pushTokenSchema], default: [] },
     walletCoins: { type: Number, default: 0 },
+    // Google Pay / PhonePe number a vendor / agent gets payouts on (10 digits),
+    // given at signup. Admin pays withdrawals to it or to the bank account.
+    upiNumber: { type: String, default: null },
     // Set once, when the customer role is first added — lets other users'
     // referral-code entries be looked up directly instead of needing to
     // reverse a one-way hash (customerReferralCode() is deterministic from

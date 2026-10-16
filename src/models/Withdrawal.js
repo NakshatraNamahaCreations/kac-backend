@@ -18,6 +18,8 @@ const withdrawalSchema = new Schema(
       accountNumberEnc: { type: String, default: null },
       ifsc: { type: String, required: true },
     },
+    // Google Pay / PhonePe number at request time (User.upiNumber).
+    upiNumber: { type: String, default: null },
     status: { type: String, enum: ['REQUESTED', 'PAID', 'REJECTED'], default: 'REQUESTED', index: true },
     // Bank transfer reference (UTR / IMPS ref) the admin enters when paying.
     payoutReference: { type: String, default: null },

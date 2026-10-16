@@ -29,6 +29,13 @@ const MAX_SERVICE_ITEMS = 3;
 
 const registerSchema = z.object({
   categories: z.array(z.string()).min(1),
+  // Google Pay / PhonePe number for payouts (10-digit mobile), optional.
+  upiNumber: z
+    .string()
+    .trim()
+    .regex(/^[6-9]\d{9}$/, 'Enter a 10-digit Google Pay / PhonePe number')
+    .or(z.literal(''))
+    .optional(),
   // Vendor-defined services (own name + price). Falls back to a generic
   // catalog per category if omitted, for backward compatibility with
   // clients that haven't picked up the dynamic-services wizard step yet.
@@ -199,10 +206,9 @@ async function registerVendor(req, res) {
   vendor.referralCode = vendorReferralCode(String(vendor._id));
   await vendor.save();
 
-  if (!user.roles.includes('vendor')) {
-    user.roles.push('vendor');
-    await user.save();
-  }
+  if (body.upiNumber) user.upiNumber = body.upiNumber;
+  if (!user.roles.includes('vendor')) user.roles.push('vendor');
+  await user.save();
 
   if (body.referralCode) {
     const kind = detectReferralKind(body.referralCode);

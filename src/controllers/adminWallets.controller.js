@@ -124,7 +124,11 @@ async function listWallets(req, res) {
       owners = new Map(users.map((u) => [String(u._id), { name: u.name, phone: u.phone }]));
     }
     const ids = [...owners.keys()];
-    const agents = await AgentModel.find({ userId: { $in: ids } }, 'userId walletCoins');
+    const [agents, upiUsers] = await Promise.all([
+      AgentModel.find({ userId: { $in: ids } }, 'userId walletCoins'),
+      UserModel.find({ _id: { $in: ids } }, 'upiNumber'),
+    ]);
+    const upiByUser = new Map(upiUsers.map((u) => [String(u._id), u.upiNumber ?? null]));
     const coinsByUser = new Map(agents.map((a) => [String(a.userId), a.walletCoins ?? 0]));
     // Wallet doc may not exist yet (never credited) — that's a 0 balance.
     const all = ids
@@ -136,6 +140,8 @@ async function listWallets(req, res) {
       name: r.name ?? null,
       personName: r.personName ?? null,
       phone: r.phone ?? null,
+      // Google Pay / PhonePe payout number.
+      upiNumber: upiByUser.get(r.userId) ?? null,
       coins: r.coins,
     }));
   }

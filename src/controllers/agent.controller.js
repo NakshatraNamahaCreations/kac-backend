@@ -37,6 +37,13 @@ const kycFields = {
 const registerSchema = z.object({
   name: z.string(),
   area: z.string(),
+  // Google Pay / PhonePe number for payouts (10-digit mobile), optional.
+  upiNumber: z
+    .string()
+    .trim()
+    .regex(/^[6-9]\d{9}$/, 'Enter a 10-digit Google Pay / PhonePe number')
+    .or(z.literal(''))
+    .optional(),
   bank: bankSchema,
   address: z.string().optional(),
   referralCode: z.string().optional(),
@@ -110,6 +117,7 @@ async function registerAgent(req, res) {
   // The address from the signup's address step — it was sent but never
   // saved, so the admin panel showed no address for agents.
   if (body.address?.trim()) user.address = body.address.trim();
+  if (body.upiNumber) user.upiNumber = body.upiNumber;
   if (body.area?.trim() && !user.area) user.area = body.area.trim();
   if (!user.roles.includes('agent')) user.roles.push('agent');
   await user.save();

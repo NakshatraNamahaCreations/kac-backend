@@ -64,6 +64,12 @@ const editSchemas = {
   }),
   vendor: z.object({
     name: z.string().trim().min(1).max(120).optional(),
+    upiNumber: z
+      .string()
+      .trim()
+      .regex(/^[6-9]\d{9}$/, 'Google Pay / PhonePe number must be a 10-digit mobile number')
+      .or(z.literal(''))
+      .optional(),
     personName: text(80),
     phone: phoneField,
     whatsapp: text(20),
@@ -93,6 +99,12 @@ const editSchemas = {
   }),
   agent: z.object({
     name: text(80),
+    upiNumber: z
+      .string()
+      .trim()
+      .regex(/^[6-9]\d{9}$/, 'Google Pay / PhonePe number must be a 10-digit mobile number')
+      .or(z.literal(''))
+      .optional(),
     phone: phoneField,
     area: text(160),
     address: text(300),
@@ -229,6 +241,7 @@ async function updateUserAdmin(req, res) {
       if (body.serviceQuota === undefined) fresh.serviceQuota = planDoc.serviceQuota;
     }
     if (body.serviceQuota !== undefined) fresh.serviceQuota = body.serviceQuota;
+    if (body.upiNumber !== undefined) await UserModel.updateOne({ _id: fresh.userId }, { $set: { upiNumber: body.upiNumber || null } });
     if (body.bank) {
       fresh.bank = {
         accountHolder: body.bank.accountHolder,
@@ -269,6 +282,7 @@ async function updateUserAdmin(req, res) {
     if (body.kyc) agent.kyc = applyKyc(agent.kyc, body.kyc, { withOwner: false });
     await agent.save();
     await UserModel.updateOne({ _id: agent.userId }, { $set: pick(body, ['name', 'address', 'area']) });
+    if (body.upiNumber !== undefined) await UserModel.updateOne({ _id: agent.userId }, { $set: { upiNumber: body.upiNumber || null } });
     return res.json({ ok: true });
   }
 

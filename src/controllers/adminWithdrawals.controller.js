@@ -15,7 +15,7 @@ const STATUSES = ['REQUESTED', 'PAID', 'REJECTED'];
 // Admin view of a withdrawal: who asked, and the FULL account number so the
 // admin can make the bank transfer by hand.
 async function enrich(rows) {
-  const users = await UserModel.find({ _id: { $in: rows.map((w) => w.userId) } }, 'name phone roles');
+  const users = await UserModel.find({ _id: { $in: rows.map((w) => w.userId) } }, 'name phone roles upiNumber');
   const userById = new Map(users.map((u) => [String(u._id), u]));
   return rows.map((w) => {
     const u = userById.get(String(w.userId));
@@ -23,6 +23,8 @@ async function enrich(rows) {
       ...w.toJSON(),
       userId: String(w.userId),
       user: u ? { name: u.name, phone: u.phone, roles: u.roles } : null,
+      // Snapshot from the request; falls back to the user's current number.
+      upiNumber: w.upiNumber ?? u?.upiNumber ?? null,
       bank: { ...w.toJSON().bank, accountNumber: decryptSecret(w.bank?.accountNumberEnc) },
     };
   });

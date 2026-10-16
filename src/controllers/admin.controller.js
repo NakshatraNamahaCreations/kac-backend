@@ -325,7 +325,10 @@ async function getUserDetail(req, res) {
     // Category ids -> names for display.
     const cats = await CategoryModel.find({ _id: { $in: vendor.categories ?? [] } }, 'name');
     // A vendor's wallet lives on their Agent document.
-    const wallet = await AgentModel.findOne({ userId: vendor.userId }, 'walletCoins');
+    const [wallet, owner] = await Promise.all([
+      AgentModel.findOne({ userId: vendor.userId }, 'walletCoins'),
+      UserModel.findById(vendor.userId, 'upiNumber'),
+    ]);
     const nameById = new Map(cats.map((c) => [String(c._id), c.name]));
     // Full Aadhaar (admin only): decrypt the stored copy; for vendors an agent
     // onboarded before encryption existed, the Onboarding row still has it.
@@ -348,11 +351,13 @@ async function getUserDetail(req, res) {
       bank: json.bank ? { ...json.bank, accountNumber: decryptSecret(vendor.bank?.accountNumberEnc) } : json.bank,
       categoryNames: (vendor.categories ?? []).map((c) => nameById.get(String(c)) ?? c),
       walletCoins: wallet?.walletCoins ?? 0,
+      // Google Pay / PhonePe payout number (User.upiNumber).
+      upiNumber: owner?.upiNumber ?? null,
     });
   }
 
   if (role === 'agent') {
-    const agent = await AgentModel.findById(id).populate('userId', 'name phone area address');
+    const agent = await AgentModel.findById(id).populate('userId', 'name phone area address upiNumber');
     if (!agent) fail(404, 'NOT_FOUND', 'Agent not found.');
     const { userId, ...rest } = agent.toJSON();
     rest.kyc = { ...(rest.kyc ?? {}), aadhaarNumber: decryptAadhaar(agent.kyc?.aadhaarNumberEnc) };
@@ -378,6 +383,7 @@ async function getUserDetail(req, res) {
       name: userId?.name,
       phone: userId?.phone,
       area: rest.area ?? userId?.area,
+      upiNumber: agent.userId?.upiNumber ?? null,
       address: fullAddress(userId?.address, rest.area ?? userId?.area),
       onboardings: onboardings.map((o) => ({
         id: String(o._id),

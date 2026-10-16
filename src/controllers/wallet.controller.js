@@ -125,6 +125,7 @@ async function withdraw(req, res) {
   const withdrawal = await WithdrawalModel.create({
     userId: req.user._id,
     amountCoins: body.amountCoins,
+    upiNumber: req.user.upiNumber ?? null,
     bank: {
       accountHolder: bank.accountHolder,
       accountNumberMasked: bank.accountNumberMasked,
