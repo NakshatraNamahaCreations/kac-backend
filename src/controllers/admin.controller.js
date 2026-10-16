@@ -422,9 +422,15 @@ async function getUserDetail(req, res) {
   const user = await UserModel.findById(id).select('-pushTokens');
   if (!user) fail(404, 'NOT_FOUND', 'User not found.');
   const codes = (await referralCodesByUser([user])).get(String(user._id)) ?? [];
+  // A vendor's address lives on their vendor profile — use it when the
+  // account itself has none.
+  const vendorAddress = user.address
+    ? null
+    : (await VendorModel.findOne({ userId: user._id }, 'address'))?.address ?? null;
   res.json({
     role: 'customer',
     ...user.toJSON(),
+    address: user.address || vendorAddress,
     referralCode: user.referralCode || customerReferralCode(String(user._id)),
     referralCodes: codes,
     referredBy: await referredByForUser(user),

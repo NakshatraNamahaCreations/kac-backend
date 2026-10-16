@@ -187,11 +187,29 @@ async function patchMe(req, res) {
 const addRoleSchema = z.object({
   role: z.enum(['customer', 'vendor', 'agent', 'employee']),
   referralCode: z.string().optional(),
+  // Customer signup's address step (CustomerRegisterAddressScreen) — it
+  // used to stay on the phone only, so the admin panel had no address.
+  address: z.string().trim().max(300).optional(),
+  area: z.string().trim().max(160).optional(),
 });
 
 async function addRole(req, res) {
-  const { role, referralCode } = addRoleSchema.parse(req.body);
+  const { role, referralCode, address, area } = addRoleSchema.parse(req.body);
   const user = req.user;
+  // Only fills an empty address/area — the app can't change an existing one
+  // (admin panel does that).
+  if (role === 'customer') {
+    let touched = false;
+    if (address && !user.address) {
+      user.address = address;
+      touched = true;
+    }
+    if (area && !user.area) {
+      user.area = area;
+      touched = true;
+    }
+    if (touched && user.roles.includes('customer')) await user.save();
+  }
   const isNewRole = !user.roles.includes(role);
   if (isNewRole) {
     user.roles.push(role);

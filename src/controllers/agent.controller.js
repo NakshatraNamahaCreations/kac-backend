@@ -107,10 +107,12 @@ async function registerAgent(req, res) {
   agent.bankAccounts.push({ accountHolder: body.bank.accountHolder, ...accountFields(body.bank.accountNumber), ifsc });
   await agent.save();
 
-  if (!user.roles.includes('agent')) {
-    user.roles.push('agent');
-    await user.save();
-  }
+  // The address from the signup's address step — it was sent but never
+  // saved, so the admin panel showed no address for agents.
+  if (body.address?.trim()) user.address = body.address.trim();
+  if (body.area?.trim() && !user.area) user.area = body.area.trim();
+  if (!user.roles.includes('agent')) user.roles.push('agent');
+  await user.save();
 
   if (body.referralCode) {
     const kind = detectReferralKind(body.referralCode);
