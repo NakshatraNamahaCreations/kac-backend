@@ -19,6 +19,7 @@ const { normalizePhone } = require('../lib/phone');
 const { io } = require('../realtime/socket');
 const { decryptAadhaar, decryptSecret } = require('../lib/aadhaarVault');
 const { referredByForUser } = require('../lib/referredBy');
+const { fullAddress } = require('../lib/fullAddress');
 
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -331,6 +332,7 @@ async function getUserDetail(req, res) {
       role: 'vendor',
       ...json,
       kyc: { ...(json.kyc ?? {}), aadhaarNumber },
+      address: fullAddress(vendor.address, vendor.area, vendor.addressPincode),
       referredBy: await referredByForUser({ _id: vendor.userId, phone: vendor.phone }),
       roleRecords: await roleRecordsFor(vendor.userId),
       bank: json.bank ? { ...json.bank, accountNumber: decryptSecret(vendor.bank?.accountNumberEnc) } : json.bank,
@@ -365,7 +367,7 @@ async function getUserDetail(req, res) {
       name: userId?.name,
       phone: userId?.phone,
       area: rest.area ?? userId?.area,
-      address: userId?.address,
+      address: fullAddress(userId?.address, rest.area ?? userId?.area),
       onboardings: onboardings.map((o) => ({
         id: String(o._id),
         createdAt: o.createdAt,
@@ -415,7 +417,7 @@ async function getUserDetail(req, res) {
       roleRecords: await roleRecordsFor(employee.userId?._id ?? employee.userId),
       name: userId?.name,
       phone: userId?.phone,
-      address: userId?.address,
+      address: fullAddress(userId?.address),
     });
   }
 
@@ -424,13 +426,15 @@ async function getUserDetail(req, res) {
   const codes = (await referralCodesByUser([user])).get(String(user._id)) ?? [];
   // A vendor's address lives on their vendor profile — use it when the
   // account itself has none.
-  const vendorAddress = user.address
+  const vendorForAddress = user.address
     ? null
-    : (await VendorModel.findOne({ userId: user._id }, 'address'))?.address ?? null;
+    : await VendorModel.findOne({ userId: user._id }, 'address area addressPincode');
   res.json({
     role: 'customer',
     ...user.toJSON(),
-    address: user.address || vendorAddress,
+    address: user.address
+      ? fullAddress(user.address, user.area)
+      : fullAddress(vendorForAddress?.address, vendorForAddress?.area ?? user.area, vendorForAddress?.addressPincode),
     referralCode: user.referralCode || customerReferralCode(String(user._id)),
     referralCodes: codes,
     referredBy: await referredByForUser(user),
