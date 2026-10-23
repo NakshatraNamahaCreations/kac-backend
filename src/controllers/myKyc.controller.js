@@ -93,7 +93,11 @@ async function createChangeRequest(req, res) {
   if (!req.user.roles.includes(body.role)) fail(403, 'ROLE_REQUIRED', `You are not registered as a ${body.role}.`);
   const open = await ChangeRequestModel.countDocuments({ userId: req.user._id, status: { $in: ['OPEN', 'IN_PROGRESS'] } });
   if (open >= 5) fail(429, 'TOO_MANY_OPEN', 'You already have 5 open requests. Please wait for the team to respond.');
-  const row = await ChangeRequestModel.create({ userId: req.user._id, ...body });
+  const row = await ChangeRequestModel.create({
+    userId: req.user._id,
+    ...body,
+    history: [{ status: 'OPEN', note: null, at: new Date() }],
+  });
   res.status(201).json(row.toJSON());
 }
 
@@ -143,8 +147,14 @@ async function updateChangeRequestAdmin(req, res) {
   const body = updateSchema.parse(req.body);
   const row = await ChangeRequestModel.findById(req.params.id);
   if (!row) fail(404, 'NOT_FOUND', 'Request not found.');
+  const note = body.adminNote !== undefined ? body.adminNote || null : row.adminNote;
+  // Requests from before history existed start their timeline at creation.
+  if (row.history.length === 0) row.history.push({ status: 'OPEN', note: null, at: row.createdAt });
+  if (body.status !== row.status || note !== row.adminNote) {
+    row.history.push({ status: body.status, note, at: new Date() });
+  }
   row.status = body.status;
-  if (body.adminNote !== undefined) row.adminNote = body.adminNote || null;
+  row.adminNote = note;
   row.resolvedAt = body.status === 'RESOLVED' || body.status === 'REJECTED' ? new Date() : null;
   await row.save();
   io()?.to(`user:${String(row.userId)}`).emit('changeRequest.updated', { id: String(row._id), status: row.status });

@@ -19,6 +19,18 @@ const changeRequestSchema = new Schema(
     // Shown to the user in the app (what was done / why it was rejected).
     adminNote: { type: String, default: null },
     resolvedAt: { type: Date, default: null },
+    // Every status step, oldest first — the app shows it as a timeline.
+    history: {
+      type: [
+        {
+          _id: false,
+          status: { type: String, enum: CHANGE_REQUEST_STATUSES, required: true },
+          note: { type: String, default: null },
+          at: { type: Date, required: true },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true },
 );

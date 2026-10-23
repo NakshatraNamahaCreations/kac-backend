@@ -191,15 +191,23 @@ const addRoleSchema = z.object({
   // used to stay on the phone only, so the admin panel had no address.
   address: z.string().trim().max(300).optional(),
   area: z.string().trim().max(160).optional(),
+  // Name typed on the customer signup's address step (prefilled with the
+  // account name; someone adding the customer role may change it there).
+  name: z.string().trim().min(2).max(80).optional(),
 });
 
 async function addRole(req, res) {
-  const { role, referralCode, address, area } = addRoleSchema.parse(req.body);
+  const { role, referralCode, address, area, name } = addRoleSchema.parse(req.body);
   const user = req.user;
   // Only fills an empty address/area — the app can't change an existing one
   // (admin panel does that).
   if (role === 'customer') {
     let touched = false;
+    // Only while becoming a customer — not a way to rename later.
+    if (name && !user.roles.includes('customer') && name !== user.name) {
+      user.name = name;
+      touched = true;
+    }
     if (address && !user.address) {
       user.address = address;
       touched = true;
