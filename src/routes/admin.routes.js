@@ -18,6 +18,7 @@ const { createUploadAdmin, getUploadAdmin } = require('../controllers/uploads.co
 const { listPayments, deletePayment } = require('../controllers/adminPayments.controller');
 const { getRoleStats } = require('../controllers/adminRoleStats.controller');
 const { listWithdrawals, resolveWithdrawal } = require('../controllers/adminWithdrawals.controller');
+const { listChangeRequestsAdmin, updateChangeRequestAdmin } = require('../controllers/myKyc.controller');
 const {
   adjustWalletAdmin,
   deleteUserAdmin,
@@ -77,6 +78,8 @@ adminRouter.delete('/admin/bookings/:id', asyncHandler(deleteBooking));
 adminRouter.get('/admin/payments', asyncHandler(listPayments));
 adminRouter.delete('/admin/payments/:id', asyncHandler(deletePayment));
 adminRouter.get('/admin/withdrawals', asyncHandler(listWithdrawals));
+adminRouter.get('/admin/change-requests', asyncHandler(listChangeRequestsAdmin));
+adminRouter.patch('/admin/change-requests/:id', asyncHandler(updateChangeRequestAdmin));
 adminRouter.patch('/admin/withdrawals/:id', asyncHandler(resolveWithdrawal));
 adminRouter.get('/admin/wallets', asyncHandler(listWallets));
 adminRouter.get('/admin/wallets/:userId/ledger', asyncHandler(getWalletLedger));
