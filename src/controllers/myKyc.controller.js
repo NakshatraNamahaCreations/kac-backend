@@ -1,6 +1,8 @@
 const { z } = require('zod');
 const { isValidObjectId } = require('mongoose');
 const { VendorModel } = require('../models/Vendor');
+const { EmployeeModel, dailyTargetsOf } = require('../models/Employee');
+const { fullAddress } = require('../lib/fullAddress');
 const { AgentModel } = require('../models/Agent');
 const { OnboardingModel } = require('../models/Onboarding');
 const { UserModel } = require('../models/User');
@@ -20,9 +22,42 @@ const roleQuery = z.enum(['vendor', 'agent']);
 // bank + KYC details in full (Aadhaar and account numbers decrypted), for the
 // view-only screens in the app. Never anyone else's: always req.user.
 async function getMyKycDetails(req, res) {
-  const role = roleQuery.parse(req.query.role);
+  const role = z.enum(['vendor', 'agent', 'employee']).parse(req.query.role);
   if (!req.user.roles.includes(role)) fail(403, 'ROLE_REQUIRED', `You are not registered as a ${role}.`);
   const userId = req.user._id;
+
+  // Employee "My details" (view-only): basic + work details + KYC the admin
+  // entered. No bank / payout fields — employees have no wallet.
+  if (role === 'employee') {
+    const employee = await EmployeeModel.findOne({ userId });
+    if (!employee) fail(404, 'EMPLOYEE_NOT_FOUND', 'Your employee record was not found.');
+    const k = employee.kyc ?? {};
+    const targets = dailyTargetsOf(employee);
+    res.json({
+      role,
+      basic: {
+        name: req.user.name ?? null,
+        phone: req.user.phone,
+        address: fullAddress(req.user.address),
+      },
+      employee: {
+        employeeId: employee.employeeId,
+        referralCode: employee.referralCode,
+        areaAssigned: employee.areaAssigned,
+        dailyTargets: targets,
+        joinedAt: employee.createdAt,
+      },
+      kyc: {
+        aadhaarNumber: decryptSecret(k.aadhaarNumberEnc),
+        aadhaarNumberMasked: k.aadhaarNumberMasked ?? null,
+        aadhaarName: k.aadhaarName ?? null,
+        aadhaarPhotoUploaded: !!k.aadhaarPhotoKey,
+        panNumber: k.panNumber ?? null,
+        panPhotoUploaded: !!k.panPhotoKey,
+      },
+    });
+    return;
+  }
 
   let kyc = {};
   let banks = [];
