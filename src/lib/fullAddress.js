@@ -4,6 +4,12 @@
 // string and keep the locality in `area` — this merges the two (skipping area
 // parts the address already mentions) so every role shows the full address.
 function fullAddress(address, area, pincode) {
+  const raw = String(address ?? '').trim();
+  if (!raw) return null;
+  // Show what the person entered, exactly. Only the old short form
+  // ("house · street · landmark · pincode", which has no locality) is filled
+  // out below with the area.
+  if (!raw.includes('·')) return raw;
   const parts = String(address ?? '')
     .split(/\s*·\s*|\s*,\s*/)
     .map((p) => p.trim())
@@ -23,10 +29,16 @@ function fullAddress(address, area, pincode) {
   }
 
   const lower = parts.join(' ').toLowerCase();
-  const areaParts = String(area ?? '')
+  const allArea = String(area ?? '')
     .split(',')
     .map((p) => p.trim())
-    .filter((p) => p && !lower.includes(p.toLowerCase()));
+    .filter(Boolean);
+  // Add the area only to an address that names no locality at all (the old
+  // short "house · street · pincode" form). A full address — e.g. one picked
+  // from Google suggestions — already says where it is; adding a separate
+  // service area to it would mix two different places.
+  const hasLocality = allArea.some((p) => lower.includes(p.toLowerCase()));
+  const areaParts = hasLocality ? [] : allArea;
 
   const line = [...parts, ...areaParts].join(', ');
   if (!line && !pin) return null;
