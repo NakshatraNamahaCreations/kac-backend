@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { requireAdminAuth } = require('../middleware/auth');
+const { HttpError } = require('../lib/httpError');
 const {
   adminChangePassword,
   adminLogin,
@@ -19,6 +20,7 @@ const { listPayments, deletePayment } = require('../controllers/adminPayments.co
 const { getRoleStats } = require('../controllers/adminRoleStats.controller');
 const { listWithdrawals, resolveWithdrawal } = require('../controllers/adminWithdrawals.controller');
 const { listChangeRequestsAdmin, updateChangeRequestAdmin } = require('../controllers/myKyc.controller');
+const { listOnboardingsAdmin } = require('../controllers/adminOnboardings.controller');
 const {
   adjustWalletAdmin,
   deleteUserAdmin,
@@ -79,6 +81,7 @@ adminRouter.get('/admin/payments', asyncHandler(listPayments));
 adminRouter.delete('/admin/payments/:id', asyncHandler(deletePayment));
 adminRouter.get('/admin/withdrawals', asyncHandler(listWithdrawals));
 adminRouter.get('/admin/change-requests', asyncHandler(listChangeRequestsAdmin));
+adminRouter.get('/admin/onboardings', asyncHandler(listOnboardingsAdmin));
 adminRouter.patch('/admin/change-requests/:id', asyncHandler(updateChangeRequestAdmin));
 adminRouter.patch('/admin/withdrawals/:id', asyncHandler(resolveWithdrawal));
 adminRouter.get('/admin/wallets', asyncHandler(listWallets));
@@ -109,5 +112,13 @@ adminRouter.get('/admin/intro-video', asyncHandler(getIntroVideoAdmin));
 adminRouter.patch('/admin/intro-video', asyncHandler(updateIntroVideo));
 adminRouter.post('/admin/intro-video/file', uploadIntroVideoMiddleware, asyncHandler(uploadIntroVideoFile));
 adminRouter.delete('/admin/intro-video/file', asyncHandler(deleteIntroVideoFile));
+
+// Any other /admin/* address is an unknown admin route — answer 404 here.
+// Otherwise it falls through to the app routers, whose app-user login check
+// (e.g. walletRouter.use(requireAuth)) rejects the admin token with a 401,
+// and the admin panel treats that 401 as "logged out" and kicks to /login.
+adminRouter.use('/admin', (_req, _res, next) => {
+  next(new HttpError(404, 'NOT_FOUND', 'Unknown admin endpoint. The server may need redeploying.'));
+});
 
 module.exports = { adminRouter };
